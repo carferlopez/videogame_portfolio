@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>UMBRAL — La Playa · prototipo 3D</title>
+<style>
+  :root{ --negro:#0a0806; --hueso:#ece5d8; }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ height:100%; overflow:hidden; background:var(--negro); }
+  canvas{ display:block; filter:saturate(1.18) contrast(1.05); }
+  .hud{
+    position:fixed; z-index:10; pointer-events:none;
+    font-family:"Courier New", ui-monospace, monospace;
+    color:var(--hueso); letter-spacing:.08em;
+  }
+  .hud--brand{
+    top:18px; left:18px;
+    background:var(--negro); padding:10px 14px;
+    font-size:11px; line-height:1.5; text-transform:uppercase;
+    border:1px solid rgba(236,229,216,.25);
+  }
+  .hud--brand strong{ font-weight:700; }
+  .hud--hint{
+    bottom:16px; right:18px; font-size:10px; text-transform:uppercase;
+    opacity:.7; text-shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+  .hud--estado{
+    bottom:16px; left:18px; font-size:10px; text-transform:uppercase;
+    background:rgba(10,8,6,.8); padding:6px 10px; max-width:46ch;
+  }
+  .joy{
+    position:fixed; z-index:20; display:none; pointer-events:none;
+    width:110px; height:110px; border-radius:50%;
+    border:2px solid rgba(236,229,216,.5); background:rgba(10,8,6,.25);
+  }
+  .joy__knob{
+    position:absolute; left:50%; top:50%; margin:-24px 0 0 -24px;
+    width:48px; height:48px; border-radius:50%;
+    background:rgba(236,229,216,.75);
+  }
+  .fallback{
+    position:fixed; inset:0; display:none; place-items:center;
+    color:var(--hueso); font-family:ui-monospace,monospace; font-size:13px;
+    text-align:center; padding:2rem;
+  }
+</style>
+</head>
+<body>
+<div class="hud hud--brand"><strong>UMBRAL</strong> · La Playa<br>prototipo 3D · low-poly</div>
+<div class="hud hud--hint">wasd/flechas camina · espacio corre · ratón mira · m sonido</div>
+<div class="hud hud--estado" id="estado">iniciando…</div>
+<div class="joy" id="joy-base"><div class="joy__knob" id="joy-knob"></div></div>
+<div class="fallback" id="fallback">Tu navegador no pudo iniciar WebGL.<br>Prueba en Chrome o Safari actualizados.</div>
+
+<script src="assets.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+/* ============ CONSTANTES DE DIRECCIÓN ============ */
+const WAYFINDING = {
+  cian:    0x35d0d8,   // 01
+  magenta: 0xff4fa3,   // 02
+  lima:    0xb8e35a,   // 03
+  ambar:   0xe08c2e,   // 04 (héroe)
+};
+const COL = {
+  cielo_top: 0x2f9be8, cielo_bajo: 0xeafaf6, niebla: 0xe2f2f8,
+  arena: 0xf2dfa7, arena_mojada: 0xddc189,
+  mar_profundo: 0x1f86c9, mar_claro: 0x45c1e0,
+  madera: 0xc98d58, madera_clara: 0xe0b57e, madera_oscura: 0x9a6a3e,
+  paja: 0xe3c97f, tronco: 0xa06a3c, fronda: 0x3fae4f, fronda2: 0x2f9245,
+  roca: 0xb9b4a6,
+};
+const ORILLA_X = -5.2;   // frontera arena-mar
+const COLISIONES = [];   // cilindros {x, z, r} — nada se atraviesa
+
+/* ============ BASE ============ */
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias:true });
+} catch(e) {
+  document.getElementById('fallback').style.display = 'grid';
+  throw e;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(COL.niebla, 55, 130);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 260);
+
+/* Cielo: gradiente en esfera invertida */
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, fog:false, depthWrite:false,
+  uniforms: {
+    top: { value: new THREE.Color(COL.cielo_top) },
+    low: { value: new THREE.Color(COL.cielo_bajo) },
+  },
+  vertexShader: `varying vec3 vP; void main(){ vP = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform vec3 top; uniform vec3 low; varying vec3 vP;
+    void main(){ float h = clamp(vP.y/100.0, 0.0, 1.0);
+    gl_FragColor = vec4(mix(low, top, pow(h, 0.75)), 1.0); }`,
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(180, 16, 12), skyMat));
+
+/* Luz: sol de verano + rebote alto coloreado (sombras luminosas, nunca grises) */
+const sol = new THREE.DirectionalLight(0xfff8e8, 2.3);
+sol.position.set(30, 46, 18);
+sol.castShadow = true;
+sol.shadow.mapSize.set(2048, 2048);
+sol.shadow.camera.left = -60; sol.shadow.camera.right = 60;
+sol.shadow.camera.top = 65;   sol.shadow.camera.bottom = -65;
+sol.shadow.camera.near = 5;   sol.shadow.camera.far = 140;
+sol.shadow.bias = -0.0004;
+scene.add(sol);
+sol.target.position.set(0, 0, -22); scene.add(sol.target);
+scene.add(new THREE.HemisphereLight(0xcfeaff, 0xffe9c4, 1.6));
+
+/* ============ MATERIAL TOON — cel shading en dos bandas ============ */
+const gradient = new THREE.DataTexture(
+  new Uint8Array([168, 168, 168, 255, 255, 255, 255, 255]),
+  2, 1, THREE.RGBAFormat);
+gradient.minFilter = gradient.magFilter = THREE.NearestFilter;
+gradient.needsUpdate = true;
+
+const matCache = new Map();
+function toon(color){
+  if (!matCache.has(color))
+    matCache.set(color, new THREE.MeshToonMaterial({ color, gradientMap: gradient }));
+  return matCache.get(color);
+}
+function caja(w, h, d, color, x, y, z, { sombra=true, recibe=true, parent=scene, mat=null } = {}){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || toon(color));
+  m.position.set(x, y, z);
+  m.castShadow = sombra; m.receiveShadow = recibe;
+  parent.add(m); return m;
+}
+
+/* ============ TEXTURAS PINTADAS EN CANVAS (el salto Wind Waker) ============ */
+const R = (a, b) => a + Math.random() * (b - a);
+function lienzo(s, pintar){
+  const c = document.createElement('canvas'); c.width = c.height = s;
+  pintar(c.getContext('2d'), s);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const texArena = lienzo(256, (x, s) => {
+  x.fillStyle = '#f2dfa7'; x.fillRect(0, 0, s, s);
+  for (let i = 0; i < 14; i++){                              // ondulaciones suaves
+    x.fillStyle = `rgba(215,186,134,${R(0.05, 0.10)})`;
+    x.beginPath(); x.ellipse(R(0,s), R(0,s), R(30,70), R(14,34), R(0,3.14), 0, 6.3); x.fill();
+  }
+  for (let i = 0; i < 900; i++){                             // moteado
+    x.fillStyle = Math.random() < 0.5 ? 'rgba(198,166,114,0.18)' : 'rgba(255,244,208,0.2)';
+    x.fillRect(R(0,s), R(0,s), 1.7, 1.7);
+  }
+});
+texArena.repeat.set(9, 24);
+const texMadera = lienzo(256, (x, s) => {
+  x.fillStyle = '#c98d58'; x.fillRect(0, 0, s, s);
+  const filas = 5, fh = s / filas;
+  for (let f = 0; f < filas; f++){
+    x.fillStyle = `rgba(${f % 2 ? '160,105,60' : '230,175,110'},0.16)`;   // tono por tablón
+    x.fillRect(0, f * fh, s, fh);
+    for (let v = 0; v < 7; v++){                             // vetas onduladas
+      x.strokeStyle = `rgba(122,78,44,${R(0.12, 0.28)})`; x.lineWidth = R(1, 2.4);
+      const y0 = f * fh + R(4, fh - 4);
+      x.beginPath(); x.moveTo(0, y0);
+      x.quadraticCurveTo(s * 0.5, y0 + R(-7, 7), s, y0 + R(-3, 3)); x.stroke();
+    }
+    x.fillStyle = 'rgba(110,66,36,0.55)'; x.fillRect(0, f * fh - 1.5, s, 3);  // junta
+  }
+  for (let n = 0; n < 5; n++){                               // nudos
+    x.strokeStyle = 'rgba(110,66,36,0.4)'; x.lineWidth = 2;
+    x.beginPath(); x.ellipse(R(0,s), R(0,s), R(3,6), R(2,4), 0, 0, 6.3); x.stroke();
+  }
+});
+const texPaja = lienzo(256, (x, s) => {
+  x.fillStyle = '#e3c97f'; x.fillRect(0, 0, s, s);
+  for (let i = 0; i < 520; i++){                             // brochazos verticales
+    x.strokeStyle = Math.random() < 0.5 ? 'rgba(180,150,85,0.5)' : 'rgba(246,224,150,0.5)';
+    x.lineWidth = R(1.2, 2.6);
+    const px = R(0, s), py = R(0, s);
+    x.beginPath(); x.moveTo(px, py); x.lineTo(px + R(-5, 5), py + R(12, 26)); x.stroke();
+  }
+});
+texPaja.repeat.set(4, 1);
+const texRoca = lienzo(256, (x, s) => {
+  x.fillStyle = '#8e9797'; x.fillRect(0, 0, s, s);
+  for (let i = 0; i < 26; i++){                              // facetas pintadas
+    x.fillStyle = Math.random() < 0.5 ? 'rgba(172,182,178,0.5)' : 'rgba(104,116,114,0.45)';
+    const cx = R(0, s), cy = R(0, s), r0 = R(22, 62);
+    x.beginPath();
+    for (let v = 0; v < 5; v++){
+      const a = (v / 5) * 6.28 + R(-0.4, 0.4), rr = r0 * R(0.6, 1.1);
+      v ? x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr)
+        : x.moveTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+    }
+    x.closePath(); x.fill();
+  }
+  for (let i = 0; i < 16; i++){                              // grietas
+    x.strokeStyle = 'rgba(74,86,84,0.35)'; x.lineWidth = R(2, 4.5);
+    const px = R(0, s), py = R(0, s);
+    x.beginPath(); x.moveTo(px, py); x.lineTo(px + R(-40, 40), py + R(20, 60)); x.stroke();
+  }
+});
+function toonMap(tex, tint = 0xffffff, extra = {}){
+  return new THREE.MeshToonMaterial({ color: tint, map: tex, gradientMap: gradient, ...extra });
+}
+const texArenaMojada = texArena.clone(); texArenaMojada.needsUpdate = true;
+texArenaMojada.repeat.set(1, 24);
+const MAT = {
+  arena:  toonMap(texArena),
+  mojada: toonMap(texArenaMojada, 0xc9b089),
+  madera: toonMap(texMadera),
+  paja:   toonMap(texPaja),
+  roca:   toonMap(texRoca, 0xffffff, { flatShading: true }),
+};
+
+/* ============ ARENA ============ */
+const arena = new THREE.Mesh(new THREE.PlaneGeometry(60, 150), MAT.arena);
+arena.rotation.x = -Math.PI/2; arena.position.set(ORILLA_X + 30, 0, -22);
+arena.receiveShadow = true; scene.add(arena);
+
+/* franja de arena mojada junto a la orilla */
+const mojada = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 150), MAT.mojada);
+mojada.rotation.x = -Math.PI/2; mojada.position.set(ORILLA_X + 1.3, 0.005, -22);
+mojada.receiveShadow = true; scene.add(mojada);
+
+/* ============ MAR — shader estilo cuento: bandas claras + espuma en la orilla ============ */
+const marUniforms = {
+  time:  { value: 0 },
+  deep:  { value: new THREE.Color(COL.mar_profundo) },
+  light: { value: new THREE.Color(COL.mar_claro) },
+  foam:  { value: new THREE.Color(0xffffff) },
+  fogColor: { value: new THREE.Color(COL.niebla) },
+};
+const marMat = new THREE.ShaderMaterial({
+  uniforms: marUniforms,
+  vertexShader: `
+    varying vec2 vUv; varying float vDist;
+    void main(){
+      vUv = uv;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      vDist = -mv.z;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform float time; uniform vec3 deep; uniform vec3 light;
+    uniform vec3 foam; uniform vec3 fogColor;
+    varying vec2 vUv; varying float vDist;
+    void main(){
+      /* profundidad: azul hondo lejos -> turquesa junto a la orilla */
+      vec3 hondo = mix(deep * 0.72, deep, smoothstep(0.0, 0.45, vUv.x));
+      vec3 turquesa = vec3(0.42, 0.85, 0.85);
+      vec3 base = mix(hondo, turquesa, smoothstep(0.86, 0.995, vUv.x));
+      /* manchas claras que derivan (lenguaje mar-de-cuento) */
+      float n = sin(vUv.x * 60.0 + time * 0.5) * sin(vUv.y * 110.0 - time * 0.35)
+              + sin(vUv.x * 23.0 - time * 0.22) * sin(vUv.y * 41.0 + time * 0.3);
+      vec3 col = mix(base, light, step(0.75, n) * 0.85);
+      /* destellos de sol */
+      float sp = sin(vUv.x * 300.0 + time * 1.3) * sin(vUv.y * 500.0 - time * 1.7);
+      col += vec3(1.0) * step(0.985, sp) * 0.35;
+      /* espuma: dos frentes ondulados junto a la orilla (uv.x=1) */
+      float ola  = sin(vUv.y * 90.0 + time * 1.1) * 0.006;
+      float ola2 = sin(vUv.y * 55.0 - time * 0.8) * 0.008;
+      float f1 = smoothstep(0.987 + ola, 0.992 + ola, vUv.x);
+      float f2 = smoothstep(0.968 + ola2, 0.971 + ola2, vUv.x)
+               - smoothstep(0.975 + ola2, 0.978 + ola2, vUv.x);
+      col = mix(col, foam, clamp(f1 + f2 * 0.85, 0.0, 1.0));
+      float fogF = smoothstep(55.0, 130.0, vDist);
+      gl_FragColor = vec4(mix(col, fogColor, fogF), 1.0);
+    }`,
+});
+const mar = new THREE.Mesh(new THREE.PlaneGeometry(75, 150), marMat);
+mar.rotation.x = -Math.PI/2;
+mar.position.set(ORILLA_X - 37.5, 0.03, -22);
+scene.add(mar);
+
+/* ============ HORIZONTE: isla lejana, barca, boyas, gaviotas ============ */
+{ /* isla silueta entre la niebla */
+  const isla = new THREE.Group(); isla.position.set(-40, 0, -88); scene.add(isla);
+  const monte = new THREE.Mesh(new THREE.ConeGeometry(9, 6, 7), toon(0x5da268));
+  monte.position.y = 2.6; isla.add(monte);
+  const playa2 = new THREE.Mesh(new THREE.CylinderGeometry(10.5, 11, 1.2, 9), toon(COL.arena));
+  playa2.position.y = 0.4; isla.add(playa2);
+  const monte2 = new THREE.Mesh(new THREE.ConeGeometry(4.5, 4, 6), toon(0x4d8f58));
+  monte2.position.set(5.5, 2, 2); isla.add(monte2);
+}
+const barca = new THREE.Group(); barca.position.set(-13, 0.05, -24); scene.add(barca);
+{
+  caja(1.1, 0.5, 2.6, 0, 0, 0.3, 0, { parent: barca, mat: MAT.madera });
+  caja(0.15, 0.62, 2.7, 0, -0.55, 0.42, 0, { parent: barca, mat: MAT.madera });
+  caja(0.15, 0.62, 2.7, 0,  0.55, 0.42, 0, { parent: barca, mat: MAT.madera });
+  caja(1.15, 0.62, 0.18, COL.madera_oscura, 0, 0.42, 1.28, { parent: barca });
+  caja(1.15, 0.62, 0.18, COL.madera_oscura, 0, 0.42, -1.28, { parent: barca });
+  caja(1.0, 0.08, 0.3, COL.madera_clara, 0, 0.55, 0.3, { parent: barca });
+}
+
+/* ============ ACANTILADOS facetados (cierran la composición) ============ */
+function risco(x, z, r, h){
+  const geo = new THREE.IcosahedronGeometry(r, 1);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++){
+    const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
+    const s = 1 + 0.12 * Math.sin(px * 3.7 + py * 2.3 + pz * 4.1)
+                + 0.06 * Math.sin(px * 9.1 - pz * 7.3);
+    pos.setXYZ(i, px * s, py * (1 + 0.1 * Math.sin(py * 5.1 + px * 2.9)), pz * s);
+  }
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, MAT.roca);
+  m.scale.y = h / r; m.position.set(x, h * 0.5, z);
+  m.castShadow = m.receiveShadow = true; scene.add(m); return m;
+}
+risco(  4, -68, 7, 9);  risco( 13, -66, 6, 12); risco( -4, -70, 8, 7);   // fondo sur
+risco( 16,  20, 6, 8);  risco(  7,  23, 7, 6);                            // espalda norte
+risco(-23, -66, 5, 6);                                                    // peñón en el mar
+
+/* ============ ESPUMA DE CONTACTO (todo lo que toca el agua) ============ */
+const espumas = [];
+function espuma(x, z, r){
+  const e = new THREE.Mesh(new THREE.RingGeometry(r * 0.8, r, 26),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+  e.rotation.x = -Math.PI / 2; e.position.set(x, 0.045, z);
+  scene.add(e); espumas.push(e); return e;
+}
+espuma(-23, -66, 6.2);                                       // peñón
+espuma(-13, -24, 1.9);                                       // barca
+espuma(-10, -8, 0.55); espuma(-16, -38, 0.55); espuma(-9, -50, 0.55);   // boyas
+
+/* matas de hierba en la duna */
+for (const [mx, mz] of [[12.5, 10], [14, 2], [12, -6], [13.5, -18], [12.2, -28],
+                        [14.2, -34], [12.8, -44], [13.6, -52]]){
+  for (let i = 0; i < 4; i++){
+    const brizna = new THREE.Mesh(new THREE.ConeGeometry(0.055, R(0.4, 0.7), 4),
+      toon(i % 2 ? 0x3fae4f : 0x2f9245));
+    brizna.position.set(mx + R(-0.25, 0.25), 0.25, mz + R(-0.25, 0.25));
+    brizna.rotation.z = R(-0.25, 0.25);
+    scene.add(brizna);
+  }
+}
+const boyas = [];
+for (const [bx, bz, bc] of [[-10, -8, 0xe85c4a], [-16, -38, 0xf2f2ea], [-9, -50, 0xe85c4a]]){
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), toon(bc));
+  b.position.set(bx, 0.15, bz); scene.add(b); boyas.push(b);
+}
+const gaviotas = [];
+for (let i = 0; i < 3; i++){
+  const g = new THREE.Group();
+  const alaI = caja(0.9, 0.05, 0.28, 0xf6f2e8, -0.45, 0, 0, { sombra:false, parent: g });
+  const alaD = caja(0.9, 0.05, 0.28, 0xf6f2e8,  0.45, 0, 0, { sombra:false, parent: g });
+  caja(0.3, 0.14, 0.5, 0xf6f2e8, 0, 0, 0.05, { sombra:false, parent: g });
+  g.userData = { alaI, alaD, fase: i * 2.1, radio: 12 + i * 4, alto: 8 + i * 2.2 };
+  scene.add(g); gaviotas.push(g);
+}
+
+/* ============ CHIRINGUITOS (4 = wayfinding + casas 3D del kit) ============ */
+const marcadores = [];
+function texturaRayas(colorHex){
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f6f1e6'; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = '#' + colorHex.toString(16).padStart(6, '0');
+  for (let i = 0; i < 4; i++) x.fillRect(i * 32, 0, 16, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 1);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshToonMaterial({ map: t, gradientMap: gradient });
+}
+const texCana = lienzo(256, (x, s) => {
+  x.fillStyle = '#d9b877'; x.fillRect(0, 0, s, s);
+  for (let i = 0; i < 16; i++){                             // cañas verticales
+    const cx0 = i * 16;
+    x.fillStyle = i % 2 ? 'rgba(160,120,60,0.25)' : 'rgba(240,215,150,0.3)';
+    x.fillRect(cx0, 0, 14, s);
+    x.strokeStyle = 'rgba(110,80,40,0.5)'; x.lineWidth = 2;
+    x.beginPath(); x.moveTo(cx0 + 15, 0); x.lineTo(cx0 + 15, s); x.stroke();
+    x.strokeStyle = 'rgba(110,80,40,0.35)';
+    for (let n = 0; n < 3; n++){
+      const ny = (n + (i % 3) * 0.33 + 0.2) * s / 3;
+      x.beginPath(); x.moveTo(cx0, ny); x.lineTo(cx0 + 15, ny); x.stroke();
+    }
+  }
+});
+const MAT_CANA = new THREE.MeshToonMaterial({ map: texCana, gradientMap: gradient });
+
+function texturaLetrero(texto){
+  const c = document.createElement('canvas'); c.width = 512; c.height = 112;
+  const x = c.getContext('2d');
+  x.fillStyle = '#0a0806'; x.fillRect(0, 0, 512, 112);
+  x.strokeStyle = 'rgba(236,229,216,0.4)'; x.lineWidth = 4; x.strokeRect(7, 7, 498, 98);
+  x.fillStyle = '#ece5d8';
+  x.font = 'bold 46px "Courier New", monospace';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(texto, 256, 60);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+const chiringuitosG = [];
+const PLAZA = { x: 7, z: 10 };          // sala central estilo Mario 64: todo visible al aparecer
+
+function chiringuito(x, z, color, nombre, estilo){
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.rotation.y = Math.atan2(PLAZA.x - x, PLAZA.z - z);   // el frente mira a la plaza
+  scene.add(g);
+  const P = { parent: g };
+
+  /* Tarima / pasarela base */
+  caja(5.2, 0.28, 4.2, 0, 0, 0.14, 0, { ...P, mat: MAT.madera });
+  
+  /* QUIOSCO moderno de playa urbana: blanco, líneas rectas, franja del color */
+  const phGroup = new THREE.Group();
+  g.add(phGroup);
+  /* cuerpo: material distinto por local (madera / estuco / grafito / caña) */
+  const paredes = [
+    { mat: MAT.madera }, { color: 0xf6f1e6 }, { color: 0x33404e }, { mat: MAT_CANA },
+  ][estilo];
+  caja(3.6, 2.4, 2.6, paredes.color || 0, 0, 1.34, -0.5, { parent: phGroup, mat: paredes.mat || null });
+  caja(2.9, 1.0, 0.12, 0x2b3440, 0, 1.6, 0.85, { parent: phGroup });          // ventana-mostrador
+  caja(0.16, 2.6, 0.16, 0xf6f1e6, -1.75, 1.3, 1.5, { parent: phGroup });      // postes
+  caja(0.16, 2.6, 0.16, 0xf6f1e6,  1.75, 1.3, 1.5, { parent: phGroup });
+  const losaCol = [0xead9b8, 0xffffff, 0x232e38, 0xead9b8][estilo];
+  caja(4.4, 0.14, 3.6, losaCol, 0, 2.78, 0.1, { parent: phGroup });            // losa plana con vuelo
+  caja(4.4, 0.24, 0.18, color, 0, 2.68, 1.92, { parent: phGroup });           // franja frontal del color
+  const cartel = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.55),
+    new THREE.MeshBasicMaterial({ map: texturaLetrero(nombre) }));            // "luminoso": ignora sombras
+  cartel.position.set(0, 2.16, 1.95); phGroup.add(cartel);
+  caja(3.4, 0.85, 0.55, 0, 0, 0.7, 1.45, { parent: phGroup, mat: MAT.madera });  // barra
+  caja(3.6, 0.1, 0.75, 0xffffff, 0, 1.18, 1.45, { parent: phGroup });         // encimera blanca
+  const toldoMat = (estilo === 0 || estilo === 2) ? texturaRayas(color) : null;
+  const toldo = caja(4.0, 0.12, 1.7, color, 0, 2.42, 1.78, { parent: phGroup, mat: toldoMat });
+  toldo.rotation.x = -0.32;
+  /* luces de verbena entre los postes */
+  const bombillaMat = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+  for (let i = 0; i < 7; i++){
+    const t = i / 6;
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 5), bombillaMat);
+    b.position.set(-1.75 + t * 3.5, 2.52 - Math.sin(t * Math.PI) * 0.33, 1.6);
+    phGroup.add(b);
+  }
+  /* taburetes */
+  for (const tx of [-1.1, 0, 1.1]){
+    const tab = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.6, 10), toon(0x2b3440));
+    tab.position.set(tx, 0.45, 2.2); tab.castShadow = true; g.add(tab);
+  }
+
+  /* Rótulo-disco lateral y tabla de surf (se conservan como identidad de color del chiringuito) */
+  const disco = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.12, 20), toon(color));
+  disco.position.set(2.15, 2.9, 0.9); disco.rotation.z = Math.PI/2;
+  disco.castShadow = true; g.add(disco);
+
+  const tabla = new THREE.Group(); tabla.position.set(2.35, 0, 0.6);
+  tabla.rotation.z = -0.22; tabla.rotation.y = 0.4; g.add(tabla);
+  const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.24, 2.1, 10), toon(color));
+  cuerpo.scale.z = 0.28; cuerpo.position.y = 1.05; cuerpo.castShadow = true; tabla.add(cuerpo);
+  const punta = new THREE.Mesh(new THREE.SphereGeometry(0.29, 8, 6), toon(color));
+  punta.scale.set(1, 0.5, 0.28); punta.position.y = 2.1; tabla.add(punta);
+
+  /* Marcador flotante de wayfinding (color de sección) */
+  const mk = new THREE.Mesh(new THREE.OctahedronGeometry(0.35),
+    new THREE.MeshToonMaterial({ color, gradientMap: gradient,
+      emissive: color, emissiveIntensity: 0.4 }));
+  mk.position.set(0, 5.6, 0); g.add(mk);
+  marcadores.push(mk);
+
+  chiringuitosG.push({ g, phGroup });
+}
+/* arco de 4 frente al punto de aparición — elección a la vista, distancias iguales */
+chiringuito(-1.5, -8.5, WAYFINDING.cian,    'QUIÉN SOY', 0);   // madera + toldo a rayas
+chiringuito( 4.2, -10.5, WAYFINDING.lima,    'SERVICIOS', 1);   // estuco blanco + toldo liso
+chiringuito( 9.8, -10.5, WAYFINDING.magenta, 'PROYECTOS', 2);   // grafito + toldo a rayas
+chiringuito(15.5, -8.5, WAYFINDING.ambar,   'CONTACTO',  3);   // caña/bambú + toldo liso
+chiringuitosG.forEach(({ g }) => {
+  /* colisiones por piezas, en el marco local del quiosco (respeta su rotación) */
+  const a = g.rotation.y;
+  const loc = (lx, lz, r) => COLISIONES.push({
+    x: g.position.x + lx * Math.cos(a) + lz * Math.sin(a),
+    z: g.position.z - lx * Math.sin(a) + lz * Math.cos(a), r });
+  loc(-1.2, -0.5, 1.25); loc(0, -0.5, 1.25); loc(1.2, -0.5, 1.25);   // cuerpo de la caseta
+  loc(-1.1, 1.85, 0.55); loc(0, 1.85, 0.55); loc(1.1, 1.85, 0.55);   // barra + taburetes
+  loc(-1.75, 1.5, 0.22); loc(1.75, 1.5, 0.22);                       // postes
+});
+
+/* ============ PALMERAS VARIADAS ============ */
+const palmerasG = [];
+function palmera(x, z, h = 4.2, lean = 0.18){
+  const g = new THREE.Group(); g.position.set(x, 0, z); scene.add(g);
+  palmerasG.push({ g, x, z, h });
+  COLISIONES.push({ x, z, r: 0.45 });
+  const segs = 7;
+  for (let i = 0; i < segs; i++){
+    const f = i / segs;
+    const sx = lean * segs * f * f;
+    const seg = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16 - f * 0.055, 0.19 - f * 0.055, h/segs + 0.1, 7),
+      toon(COL.tronco));
+    seg.position.set(sx, (i + 0.5) * h/segs, 0);
+    seg.rotation.z = -lean * f * 1.4;
+    seg.castShadow = true; g.add(seg);
+    if (i % 2 === 0){
+      const anillo = new THREE.Mesh(new THREE.CylinderGeometry(0.21 - f * 0.05, 0.21 - f * 0.05, 0.07, 7),
+        toon(0x8a5732));
+      anillo.position.set(sx, (i + 0.9) * h/segs, 0);
+      anillo.rotation.z = -lean * f * 1.4; g.add(anillo);
+    }
+  }
+  const topX = lean * segs, topY = h + 0.12;
+  for (let i = 0; i < 8; i++){
+    const a = (i / 8) * Math.PI * 2 + 0.3;
+    const fr = new THREE.Group();
+    fr.position.set(topX, topY, 0); fr.rotation.y = -a;
+    const c1 = caja(1.15, 0.06, 0.42, i % 2 ? COL.fronda : COL.fronda2, 0.55, 0, 0, { parent: fr });
+    c1.rotation.z = 0.30;
+    const c2 = caja(0.95, 0.05, 0.30, i % 2 ? COL.fronda2 : COL.fronda, 1.35, -0.28, 0, { parent: fr });
+    c2.rotation.z = 0.72;
+    g.add(fr);
+  }
+}
+palmera(13, 6, 4.6, 0.20); palmera(18.6, -2.5, 4.0, -0.14); palmera(12.5, -22, 5.0, 0.16);
+palmera(14, -38, 4.4, -0.18); palmera(13, -52, 4.8, 0.22); palmera(3, 13, 3.8, -0.24);
+
+/* ============ VIDA DE PLAYA ============ */
+function sombrilla(x, z, color){
+  COLISIONES.push({ x, z, r: 0.3 });
+  const palo = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), toon(0xf5efe2));
+  palo.position.set(x, 1.1, z); palo.rotation.z = 0.1; palo.castShadow = true; scene.add(palo);
+  const tela = new THREE.Group();
+  for (let i = 0; i < 8; i++){
+    const c = (i % 2 === 0) ? 0xfefefe : color;
+    const g = new THREE.ConeGeometry(1.5, 0.65, 1, 1, false, i * Math.PI / 4, Math.PI / 4);
+    const gajo = new THREE.Mesh(g, toon(c));
+    gajo.castShadow = true; gajo.receiveShadow = true;
+    tela.add(gajo);
+  }
+  tela.position.set(x + 0.22, 2.15, z); scene.add(tela);
+}
+sombrilla(-3.4, -6.2, 0xe85c4a);
+caja(1.7, 0.05, 0.9, 0xe85c4a, -3.1, 0.04, -3.6, { sombra:false });
+/* balón azul de playa de toda la vida (homenaje, con marca propia) */
+const texBalon = (() => {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = '#1226a8'; x.fillRect(0, 0, 512, 256);
+  x.fillStyle = 'rgba(255,255,255,0.07)';                    // brillo de plástico
+  x.beginPath(); x.ellipse(256, 70, 200, 42, 0, 0, 6.3); x.fill();
+  /* NO VEAS — arco por letra, geométrica ultrabold (Futura en macOS) */
+  x.fillStyle = '#ffffff';
+  x.font = '900 66px Futura, "Futura-Bold", "Avant Garde", "Arial Black", sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  const letras = 'NO VEAS';
+  const radio = 420, centroX = 256, centroY = 138 + radio;
+  const paso = 0.105;
+  letras.split('').forEach((L, i) => {
+    const a = (i - (letras.length - 1) / 2) * paso;
+    x.save();
+    x.translate(centroX + Math.sin(a) * radio, centroY - Math.cos(a) * radio);
+    x.rotate(a);
+    x.fillText(L, 0, 0);
+    x.restore();
+  });
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const pelota = new THREE.Mesh(new THREE.SphereGeometry(0.34, 20, 14),
+  new THREE.MeshToonMaterial({ map: texBalon, gradientMap: gradient }));
+pelota.position.set(4.4, 0.34, 5.2); pelota.castShadow = true; scene.add(pelota);
+pelota.userData = { vx: 0, vz: 0 };                          // se puede empujar (chuta al acercarte)
+for (const [rx, rz, rs] of [[-4.5, 10, 0.7], [-4.9, -55, 1.0], [-4.2, -56.5, 0.5]]){
+  const roca = new THREE.Mesh(new THREE.IcosahedronGeometry(rs, 0), toon(COL.roca));
+  roca.position.set(rx, rs * 0.4, rz); roca.castShadow = true; roca.receiveShadow = true;
+  scene.add(roca);
+  COLISIONES.push({ x: rx, z: rz, r: rs * 0.95 });
+}
+/* ============ MÁS VIDA: tumbonas, vóley, castillo ============ */
+function tumbona(x, z){
+  COLISIONES.push({ x, z, r: 0.7 });
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  g.rotation.y = -Math.PI / 2 + R(-0.15, 0.15);
+  scene.add(g);
+  const colorTela = 0x2e6ac4;       // Tela azul
+  const colorEstructura = 0xfbfbf9; // Estructura blanca
+  const lona = caja(0.60, 0.05, 1.05, colorTela, 0, 0.32, 0.25, { parent: g });
+  lona.rotation.x = -0.25;
+  const resp = caja(0.60, 0.05, 0.75, colorTela, 0, 0.55, -0.5, { parent: g });
+  resp.rotation.x = 0.9;
+  /* Marco lateral blanco del asiento y respaldo */
+  for (const sx of [-0.32, 0.32]){
+    const mAsiento = caja(0.05, 0.06, 1.08, colorEstructura, sx, 0.32, 0.25, { parent: g });
+    mAsiento.rotation.x = -0.25;
+    const mResp = caja(0.05, 0.06, 0.78, colorEstructura, sx, 0.55, -0.5, { parent: g });
+    mResp.rotation.x = 0.9;
+  }
+  /* 4 patas blancas */
+  for (const [px, pz] of [[-0.32, 0.6], [0.32, 0.6], [-0.32, -0.35], [0.32, -0.35]])
+    caja(0.06, 0.34, 0.06, colorEstructura, px, 0.17, pz, { parent: g });
+}
+tumbona(0.6, -4.2); tumbona(0.6, -5.6);
+tumbona(13.8, 3.2); tumbona(13.8, 1.8);
+
+{
+  const zc = 3.2, largo = 4.2;
+  caja(0.09, 1.9, 0.09, COL.madera, -1.4, 0.95, zc - largo/2);
+  COLISIONES.push({ x: -1.4, z: zc - largo/2, r: 0.2 }, { x: -1.4, z: zc + largo/2, r: 0.2 });
+  caja(0.09, 1.9, 0.09, COL.madera, -1.4, 0.95, zc + largo/2);
+  for (let i = 0; i < 5; i++)
+    caja(0.025, 0.025, largo, 0xf6f2e8, -1.4, 1.72 - i * 0.16, zc, { sombra:false });
+  for (let i = 0; i <= 8; i++)
+    caja(0.025, 0.68, 0.025, 0xf6f2e8, -1.4, 1.4, zc - largo/2 + i * largo/8, { sombra:false });
+}
+
+{
+  const cx = -3.8, cz = 7.5, arena2 = 0xe6cf9a;
+  const torre = (tx, tz, r, h) => {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.15, h, 9), toon(arena2));
+    c.position.set(tx, h/2, tz); c.castShadow = c.receiveShadow = true; scene.add(c);
+    const techo = new THREE.Mesh(new THREE.ConeGeometry(r * 1.25, r * 1.1, 9), toon(arena2));
+    techo.position.set(tx, h + r * 0.5, tz); techo.castShadow = true; scene.add(techo);
+  };
+  torre(cx, cz, 0.28, 0.85);
+  torre(cx + 0.75, cz + 0.3, 0.2, 0.55);
+  torre(cx + 0.35, cz - 0.55, 0.17, 0.45);
+  caja(0.65, 0.35, 0.14, arena2, cx + 0.38, 0.17, cz + 0.12);
+  caja(0.14, 0.3, 0.5, arena2, cx + 0.05, 0.15, cz - 0.3);
+  caja(0.03, 0.5, 0.03, COL.madera, cx, 1.35, cz, { sombra:false });
+  COLISIONES.push({ x: cx + 0.3, z: cz, r: 1.0 });
+  const bandera = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 3), toon(WAYFINDING.ambar));
+  bandera.position.set(cx + 0.08, 1.52, cz); bandera.rotation.z = -Math.PI/2;
+  scene.add(bandera);
+}
+
+/* plaza central de madera + pasarelas radiales a cada chiringuito */
+{
+  const deck = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 0.12, 24), MAT.madera);
+  deck.position.set(PLAZA.x, 0.06, PLAZA.z); deck.receiveShadow = true; scene.add(deck);
+  const aro = new THREE.Mesh(new THREE.CylinderGeometry(3.15, 3.15, 0.08, 24), toon(COL.madera_oscura));
+  aro.position.set(PLAZA.x, 0.04, PLAZA.z); aro.receiveShadow = true; scene.add(aro);
+  for (const [hx, hz] of [[-1.5, -8.5], [4.2, -10.5], [9.8, -10.5], [15.5, -8.5]]){
+    const dx = hx - PLAZA.x, dz = hz - PLAZA.z;
+    const dist = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
+    for (let d = 3.4; d < dist - 2.6; d += 1.05){
+      const tab = caja(1.15, 0.06, 0.8, 0, PLAZA.x + dx / dist * d, 0.03,
+        PLAZA.z + dz / dist * d, { sombra:false, mat: MAT.madera });
+      tab.rotation.y = ang;
+    }
+  }
+}
+
+/* Galeón Pirata en alta mar (horizonte) */
+const galeon = new THREE.Group();
+galeon.position.set(-32, 0.05, -55);
+galeon.rotation.y = 0.65;
+scene.add(galeon);
+espuma(-32, -55, 6.0);
+
+/* ============ VIDA DE VIDEOJUEGO: cangrejos, estrellas, conchas ============ */
+const cangrejos = [];
+function cangrejo(x, z){
+  const g = new THREE.Group(); g.position.set(x, 0.09, z); scene.add(g);
+  caja(0.34, 0.14, 0.24, 0xe0603a, 0, 0.05, 0, { parent: g });
+  caja(0.09, 0.07, 0.12, 0xe0603a, -0.2, 0.09, 0.1, { parent: g });   // pinzas
+  caja(0.09, 0.07, 0.12, 0xe0603a,  0.2, 0.09, 0.1, { parent: g });
+  for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
+    caja(0.05, 0.1, 0.03, 0xb84a2c, s * 0.2, 0.0, -0.06 + i * 0.08, { parent: g });
+  for (const s of [-1, 1]){
+    const ojo = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 4), toon(0x1c1a17));
+    ojo.position.set(s * 0.07, 0.16, 0.12); g.add(ojo);
+  }
+  g.userData = { cx: x, cz: z, fase: Math.random() * 10, radio: 1.2 + Math.random() * 1.4 };
+  cangrejos.push(g);
+}
+cangrejo(-3.4, 12); cangrejo(-3.9, -3); cangrejo(-2.8, 16.5);
+for (const [ex, ez, ec] of [[1.5, 8.5, 0xf29b76], [-2.2, 10.8, 0xef8fb2], [10.5, 4.5, 0xf29b76],
+                            [-3.4, 15.5, 0xefb376], [7.2, 1.2, 0xef8fb2], [16.8, 6.2, 0xf29b76]]){
+  const estrella = new THREE.Mesh(new THREE.CircleGeometry(0.16, 5), toon(ec));
+  estrella.rotation.x = -Math.PI/2; estrella.rotation.z = Math.random() * 3;
+  estrella.position.set(ex, 0.015, ez); scene.add(estrella);
+}
+for (let i = 0; i < 10; i++){
+  const concha = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), toon(0xf6efe0));
+  concha.scale.y = 0.35;
+  concha.position.set(R(-4.2, 2), 0.02, R(-6, 18)); scene.add(concha);
+}
+sombrilla(12.6, 2.4, 0xf2c94c); sombrilla(-2.4, -0.8, 0xe85c4a);
+palmera(11.8, 15.5, 4.3, -0.2); palmera(-2.6, 6.8, 3.5, 0.24);
+
+/* ============ NUBES ============ */
+const nubes = [];
+const nubeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+function nube(x, y, z, s){
+  const g = new THREE.Group();
+  [[0,0,0,1.6],[1.4,0.15,0.2,1.1],[-1.3,0.1,-0.2,1.0],[0.4,0.45,0.1,0.8]].forEach(([dx,dy,dz,r]) => {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 5), nubeMat);
+    b.position.set(dx, dy, dz); b.scale.y = 0.45; g.add(b);
+  });
+  g.position.set(x, y, z); g.scale.setScalar(s);
+  g.userData.v = 0.25 + Math.random() * 0.35;
+  scene.add(g); nubes.push(g);
+}
+nube(-30, 32, -70, 2.4); nube(15, 40, -85, 3.2); nube(-10, 46, -95, 3.8);
+nube(38, 35, -60, 2.0);  nube(-45, 42, -75, 2.8); nube(-60, 30, -30, 2.2);
+
+/* ============ PERSONAJE (Avatar Captain Barbarossa) ============ */
+const ROPA = { pelo: 0x2a221c, piel: 0xe8b08a, camisa: 0xece5d8,
+               pantalon: 0x1c1a17, zapato: 0x2e2a24, gorra: 0xe08c2e };
+const hero = new THREE.Group();
+const heroPH = new THREE.Group(); hero.add(heroPH);
+{
+  const parte = (w, h, d, color, x, y, z, parent = heroPH) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(color));
+    m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m;
+  };
+  const limb = (w, h, d, color, x, y) => {
+    const g = new THREE.Group(); g.position.set(x, y, 0);
+    parte(w, h, d, color, 0, -h / 2, 0, g);
+    heroPH.add(g); return g;
+  };
+  const piernaI = limb(0.20, 0.62, 0.24, ROPA.piel, -0.14, 0.70);
+  const piernaD = limb(0.20, 0.62, 0.24, ROPA.piel,  0.14, 0.70);
+  parte(0.26, 0.30, 0.30, ROPA.pantalon, 0, -0.14, 0, piernaI);
+  parte(0.26, 0.30, 0.30, ROPA.pantalon, 0, -0.14, 0, piernaD);
+  parte(0.24, 0.08, 0.34, 0xd9c9a8, 0, -0.61, 0.05, piernaI);
+  parte(0.24, 0.08, 0.34, 0xd9c9a8, 0, -0.61, 0.05, piernaD);
+  parte(0.64, 0.20, 0.38, ROPA.pantalon, 0, 0.80, 0);
+  parte(0.62, 0.60, 0.36, ROPA.camisa, 0, 1.12, 0);
+  const brazoI = limb(0.16, 0.56, 0.18, ROPA.camisa, -0.40, 1.34);
+  const brazoD = limb(0.16, 0.56, 0.18, ROPA.camisa,  0.40, 1.34);
+  parte(0.15, 0.26, 0.17, ROPA.piel, 0, -0.42, 0, brazoI);
+  parte(0.15, 0.26, 0.17, ROPA.piel, 0, -0.42, 0, brazoD);
+  const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), toon(ROPA.piel));
+  cabeza.position.set(0, 1.68, 0); cabeza.scale.set(1.05, 1.0, 1.02);
+  cabeza.castShadow = true; heroPH.add(cabeza);
+  parte(0.40, 0.09, 0.07, 0x1c1a17, 0, 1.72, 0.235);
+  const copa2 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.285, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2.4),
+    toon(ROPA.gorra));
+  copa2.position.set(0, 1.71, 0); copa2.castShadow = true; heroPH.add(copa2);
+  parte(0.50, 0.05, 0.26, ROPA.gorra, 0, 1.86, 0.34);
+  hero.userData = { piernaI, piernaD, brazoI, brazoD };
+}
+hero.rotation.y = Math.PI;
+scene.add(hero);
+
+/* ============ PIPELINE GLTF/GLB — CARGA DE ASSETS REALES ============ */
+const draco = new DRACOLoader()
+  .setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/libs/draco/');
+const gltfLoader = new GLTFLoader().setDRACOLoader(draco);
+/* chip de estado en pantalla (debug sin consola) */
+const estadoEl = document.getElementById('estado');
+let cTot = 0, cOk = 0, cErrores = [];
+function pintaEstado(){
+  estadoEl.textContent = `assets ${cOk}/${cTot}`
+    + (window.ASSETS ? ' | assets.js OK' : ' | assets.js NO CARGADO')
+    + (cErrores.length ? ' | FALLO: ' + cErrores.join(', ') : '');
+}
+addEventListener('error', e => { cErrores.push((e.message || 'error').slice(0, 60)); pintaEstado(); });
+
+/* carga con doble via: incrustado en assets.js (funciona con file://) o fetch */
+function cargar(ruta, onOk){
+  cTot++; pintaEstado();
+  const ok = g => { cOk++; pintaEstado(); onOk(g); };
+  const ko = e => { cErrores.push(ruta.split('/').pop()); pintaEstado(); console.warn(ruta, e); };
+  const emb = window.ASSETS && window.ASSETS[ruta];
+  if (emb) gltfLoader.parse(JSON.stringify(emb), '', ok, ko);
+  else gltfLoader.load(ruta, ok, undefined, ko);
+}
+
+function normaliza(obj, alturaObjetivo){
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = new THREE.Vector3(); box.getSize(size);
+  obj.scale.setScalar(alturaObjetivo / size.y);
+  box.setFromObject(obj);
+  obj.position.y -= box.min.y;                       // pies sobre la superficie
+  obj.traverse(n => {
+    if (n.isMesh){
+      n.castShadow = true;
+      n.receiveShadow = true;
+      if (n.isSkinnedMesh) n.frustumCulled = false;  // que no desaparezca al animar
+      /* COHERENCIA: convertir el PBR del kit al cel shading del mundo (dos bandas).
+         Sin esto, los assets se ven "de otro juego" — degradado suave vs banda dura. */
+      if (n.material){
+        const m0 = n.material;
+        n.material = new THREE.MeshToonMaterial({
+          map: m0.map || null,
+          color: m0.color ? m0.color.clone() : new THREE.Color(0xffffff),
+          gradientMap: gradient,
+          transparent: !!m0.transparent,
+          opacity: m0.opacity !== undefined ? m0.opacity : 1,
+          side: THREE.DoubleSide,                 // sin caras "huecas" por detrás
+        });
+      }
+    }
+  });
+  return obj;
+}
+
+/* 1. Carga del Personaje Principal (Captain Barbarossa - assets/personaje.gltf) */
+let heroMixer = null, heroAcciones = null, accionActual = 'idle';
+const cargarPersonaje = (ruta) => {
+  cargar(ruta, gltf => {
+    const model = normaliza(gltf.scene, 1.95);
+    heroPH.visible = false;
+    hero.add(model);
+    if (gltf.animations && gltf.animations.length){
+      heroMixer = new THREE.AnimationMixer(model);
+      const busca = rx => gltf.animations.find(a => rx.test(a.name));
+      heroAcciones = {
+        idle: heroMixer.clipAction(busca(/^idle/i) || busca(/idle|breath|stand/i) || gltf.animations[0]),
+        walk: heroMixer.clipAction(busca(/^walk/i) || busca(/walk/i) || gltf.animations[0]),
+      };
+      const clipRun = busca(/^run/i);
+      if (clipRun) heroAcciones.run = heroMixer.clipAction(clipRun);
+      heroAcciones.idle.play();
+    }
+  }, undefined, () => {});
+};
+cargarPersonaje('assets/personaje.gltf');
+
+/* 2. Carga de Palmeras variadas (Environment_PalmTree_1-3.gltf) */
+const palmerasFiles = [
+  'assets/palmeras/Environment_PalmTree_1.gltf',
+  'assets/palmeras/Environment_PalmTree_2.gltf',
+  'assets/palmeras/Environment_PalmTree_3.gltf',
+  'assets/palmera.gltf'
+];
+let palmerasCargadas = [];
+let palmerasContador = 0;
+palmerasFiles.slice(0, 3).forEach((ruta, idx) => {
+  cargar(ruta, gltf => {
+    palmerasCargadas[idx] = gltf.scene;
+    palmerasContador++;
+    if (palmerasContador === 3) {
+      palmerasG.forEach(({ g, x, z, h }, index) => {
+        g.visible = false;
+        const modeloBase = palmerasCargadas[index % 3] || palmerasCargadas[0];
+        const m = normaliza(modeloBase.clone(true), h + 0.9);
+        m.position.set(x, 0, z);
+        m.rotation.y = Math.random() * Math.PI * 2;
+        scene.add(m);
+      });
+    }
+  }, undefined, () => {});
+});
+
+
+/* 4. Carga de Barca en la orilla y Galeón en el horizonte */
+cargar('assets/barcos/Ship_Small.gltf', gltf => {
+  barca.children.forEach(ch => ch.visible = false);
+  const bote = normaliza(gltf.scene, 2.2);
+  bote.rotation.y = -Math.PI / 2;
+  barca.add(bote);
+}, undefined, () => {});
+
+cargar('assets/barcos/Ship_Large.gltf', gltf => {
+  const barcote = normaliza(gltf.scene, 13.5);
+  barcote.position.set(0, 0, 0);
+  galeon.add(barcote);
+}, undefined, () => {});
+
+/* 6. Vehículos del pack ciudad: furgoneta de los chiringuitos */
+cargar('assets/vehiculos/van.gltf', gltf => {
+  const van = normaliza(gltf.scene, 2.5);
+  van.position.set(17.6, 0, 13.6); van.rotation.y = -1.15;
+  COLISIONES.push({ x: 17.6, z: 13.6, r: 2.5 });
+  scene.add(van);
+});
+
+/* ============ SONIDO: música de fondo + olas + gaviotas ============ */
+let audioCtx = null, ganaMaster = null, ganaOlas = null, ganaMusica = null, bufferMusica = null, silenciado = false;
+let fuenteMusica = null;
+const VOL_MUSICA = 0.22; // Volumen agradable, por debajo de los efectos (olas 0.18+LFO y chillidos)
+const TIEMPO_FADE = 4.0; // 4 segundos de fade in al empezar y fade out al acabar
+
+function reproducirMusicaBucle(){
+  if (!audioCtx || !bufferMusica) return;
+  if (fuenteMusica) {
+    try { fuenteMusica.stop(); } catch(e){}
+    fuenteMusica = null;
+  }
+  const dur = bufferMusica.duration;
+  const fade = Math.min(TIEMPO_FADE, dur * 0.4);
+  
+  fuenteMusica = audioCtx.createBufferSource();
+  fuenteMusica.buffer = bufferMusica;
+  
+  ganaMusica = audioCtx.createGain();
+  ganaMusica.connect(ganaMaster);
+  
+  const t0 = audioCtx.currentTime;
+  // Fade IN: suave desde 0 hasta VOL_MUSICA
+  ganaMusica.gain.setValueAtTime(0, t0);
+  ganaMusica.gain.linearRampToValueAtTime(VOL_MUSICA, t0 + fade);
+  
+  // Fade OUT: suave desde VOL_MUSICA hasta 0 antes del final de la pista
+  if (dur > fade * 2) {
+    ganaMusica.gain.setValueAtTime(VOL_MUSICA, t0 + dur - fade);
+    ganaMusica.gain.linearRampToValueAtTime(0, t0 + dur);
+  }
+  
+  fuenteMusica.connect(ganaMusica);
+  fuenteMusica.start(t0);
+  fuenteMusica.onended = () => {
+    // Al terminar, reiniciar el bucle con un nuevo fade in
+    reproducirMusicaBucle();
+  };
+}
+
+function iniciaAudio(){
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  ganaMaster = audioCtx.createGain(); ganaMaster.gain.value = 0.9;
+  ganaMaster.connect(audioCtx.destination);
+  
+  /* mar: ruido blanco -> filtro grave -> ganancia con dos oleajes lentos */
+  const dur = 4, buf = audioCtx.createBuffer(2, audioCtx.sampleRate * dur, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++){
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const ruido = audioCtx.createBufferSource(); ruido.buffer = buf; ruido.loop = true;
+  const lp = audioCtx.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.value = 520; lp.Q.value = 0.6;
+  ganaOlas = audioCtx.createGain(); ganaOlas.gain.value = 0.18;
+  ruido.connect(lp); lp.connect(ganaOlas); ganaOlas.connect(ganaMaster); ruido.start();
+  for (const [f, prof] of [[0.09, 0.09], [0.23, 0.05]]){
+    const lfo = audioCtx.createOscillator(); lfo.frequency.value = f;
+    const lg = audioCtx.createGain(); lg.gain.value = prof;
+    lfo.connect(lg); lg.connect(ganaOlas.gain); lfo.start();
+  }
+  programaGaviota();
+
+  /* Cargar y reproducir música de fondo con fade in/out */
+  fetch('assets/musica_fondo.mp3')
+    .then(res => res.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => {
+      bufferMusica = buffer;
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      reproducirMusicaBucle();
+    })
+    .catch(err => console.warn('No se pudo cargar la música de fondo:', err));
+}
+function chillido(){
+  if (!audioCtx || silenciado) return;
+  let t0 = audioCtx.currentTime + 0.05;
+  const n = 2 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < n; i++){
+    const o = audioCtx.createOscillator(); o.type = 'sawtooth';
+    const g = audioCtx.createGain();
+    const bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.5;
+    const f0 = 1150 + Math.random() * 250;
+    bp.frequency.value = f0;
+    o.frequency.setValueAtTime(f0, t0);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.62, t0 + 0.28);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+    const pan = audioCtx.createStereoPanner();
+    pan.pan.value = Math.random() * 1.6 - 0.8;
+    o.connect(bp); bp.connect(g); g.connect(pan); pan.connect(ganaMaster);
+    o.start(t0); o.stop(t0 + 0.35);
+    t0 += 0.38 + Math.random() * 0.12;
+  }
+}
+function programaGaviota(){
+  setTimeout(() => { chillido(); programaGaviota(); }, 5000 + Math.random() * 9000);
+}
+['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, iniciaAudio, { once: true }));
+addEventListener('keydown', e => {
+  if (e.code === 'KeyM' && ganaMaster){
+    silenciado = !silenciado;
+    const t = audioCtx.currentTime;
+    ganaMaster.gain.cancelScheduledValues(t);
+    ganaMaster.gain.setValueAtTime(ganaMaster.gain.value, t);
+    ganaMaster.gain.linearRampToValueAtTime(silenciado ? 0 : 0.9, t + 0.35);
+  }
+});
+
+/* ============ CÁMARA Y CONTROL DE JUGADOR ============ */
+const target = { yaw: 0, pitch: 0 };
+let dragging = false, px = 0, py = 0;
+addEventListener('mousemove', e => {
+  target.yaw   = -(e.clientX / innerWidth  - 0.5) * 0.85;   // ±24° de barrido
+  target.pitch = -(e.clientY / innerHeight - 0.5) * 0.34;
+});
+/* táctil: joystick flotante con el pulgar izquierdo, mirar con el derecho */
+const joyBase = document.getElementById('joy-base');
+const joyKnob = document.getElementById('joy-knob');
+const joy = { id: null, x0: 0, y0: 0, vx: 0, vy: 0 };
+let lookId = null;
+addEventListener('touchstart', e => {
+  for (const t of e.changedTouches){
+    if (t.clientX < innerWidth * 0.45 && joy.id === null){
+      joy.id = t.identifier; joy.x0 = t.clientX; joy.y0 = t.clientY;
+      joyBase.style.display = 'block';
+      joyBase.style.left = (t.clientX - 55) + 'px';
+      joyBase.style.top  = (t.clientY - 55) + 'px';
+      joyKnob.style.transform = 'translate(0px, 0px)';
+    } else if (lookId === null){
+      lookId = t.identifier; px = t.clientX; py = t.clientY;
+    }
+  }
+}, { passive:true });
+addEventListener('touchmove', e => {
+  for (const t of e.changedTouches){
+    if (t.identifier === joy.id){
+      let jx = (t.clientX - joy.x0) / 45, jy = (t.clientY - joy.y0) / 45;
+      const m = Math.hypot(jx, jy);
+      if (m > 1){ jx /= m; jy /= m; }
+      joy.vx = jx; joy.vy = -jy;
+      joyKnob.style.transform = `translate(${jx * 38}px, ${jy * 38}px)`;
+    } else if (t.identifier === lookId){
+      target.yaw   += (t.clientX - px) / innerWidth  * 0.9;
+      target.pitch += (t.clientY - py) / innerHeight * 0.4;
+      target.yaw = THREE.MathUtils.clamp(target.yaw, -0.55, 0.55);
+      target.pitch = THREE.MathUtils.clamp(target.pitch, -0.26, 0.26);
+      px = t.clientX; py = t.clientY;
+    }
+  }
+}, { passive:true });
+addEventListener('touchend', e => {
+  for (const t of e.changedTouches){
+    if (t.identifier === joy.id){
+      joy.id = null; joy.vx = joy.vy = 0;
+      joyBase.style.display = 'none';
+    }
+    if (t.identifier === lookId) lookId = null;
+  }
+});
+if ('ontouchstart' in window)
+  document.querySelector('.hud--hint').textContent = 'pulgar izquierdo: joystick · derecho: mirar';
+
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', e => keys[e.code] = false);
+
+const player = { x: PLAZA.x, z: PLAZA.z + 1.5 };
+let yaw = 0, pitch = 0, bob = 0, swing = 0, heading = Math.PI;
+let t0 = performance.now(), last = t0;
+
+/* Límite Z (línea de los chiringuitos): el jugador no puede pasar detrás de ellos */
+const limiteZ = (x) => {
+  if (x <= 4.2) return -8.5 - ((x - (-1.5)) / (4.2 - (-1.5))) * 2.0;
+  if (x <= 9.8) return -10.5;
+  return -10.5 + ((x - 9.8) / (15.5 - 9.8)) * 2.0;
+};
+
+function animate(now){
+  const t = (now - t0) / 1000;
+  const dt = Math.min((now - last) / 1000, 0.05); last = now;
+  const intro = THREE.MathUtils.smoothstep(Math.min(t / 2.4, 1), 0, 1);
+
+  yaw += (target.yaw - yaw) * 0.14;                        // respuesta más viva
+  pitch += (target.pitch - pitch) * 0.14;
+
+  const joyMag = Math.hypot(joy.vx, joy.vy);
+  const fwd    = ((keys.KeyW || keys.ArrowUp)    ? 1 : 0) - ((keys.KeyS || keys.ArrowDown)  ? 1 : 0) + joy.vy;
+  const strafe = ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft)  ? 1 : 0) + joy.vx;
+  const andando = Math.abs(fwd) + Math.abs(strafe) > 0.12;
+  if (andando){
+    const speed = (keys.Space || joyMag > 0.92) ? 7 : 3.6;   // stick a fondo = correr
+    const len = Math.max(Math.hypot(fwd, strafe), 1);
+    const vx = (fwd * -Math.sin(yaw) + strafe *  Math.cos(yaw)) / len;
+    const vz = (fwd * -Math.cos(yaw) + strafe * -Math.sin(yaw)) / len;
+    player.x = THREE.MathUtils.clamp(player.x + vx * speed * dt, -4.4, 18.5); // orilla-duna
+    player.z = THREE.MathUtils.clamp(player.z + vz * speed * dt, limiteZ(player.x), 15);
+    for (const c of COLISIONES){                             // empuje fuera de los objetos
+      const cdx = player.x - c.x, cdz = player.z - c.z;
+      const cd = Math.hypot(cdx, cdz), min = c.r + 0.32;
+      if (cd > 0.0001 && cd < min){
+        player.x = c.x + cdx / cd * min;
+        player.z = c.z + cdz / cd * min;
+      }
+    }
+    player.x = THREE.MathUtils.clamp(player.x, -4.4, 18.5);
+    player.z = THREE.MathUtils.clamp(player.z, limiteZ(player.x), 15);
+    heading = Math.atan2(vx, vz);
+    bob += dt * speed * 1.9;
+  }
+  swing += ((andando ? 1 : 0) - swing) * 0.12;
+
+  /* altura del terreno pisado: tarima > plaza > pasarela > arena */
+  let suelo = 0.02;
+  if (Math.hypot(player.x - PLAZA.x, player.z - PLAZA.z) < 3.1) suelo = 0.13;
+  for (const { g } of chiringuitosG){
+    if (Math.abs(player.x - g.position.x) < 2.4 && Math.abs(player.z - g.position.z) < 2.4) suelo = 0.29;
+  }
+  if (suelo === 0.02){
+    for (const { g } of chiringuitosG){
+      const dx = g.position.x - PLAZA.x, dz = g.position.z - PLAZA.z;
+      const dist = Math.hypot(dx, dz);
+      const t = ((player.x - PLAZA.x) * dx + (player.z - PLAZA.z) * dz) / (dist * dist);
+      if (t > 0 && t < 1){
+        const px = PLAZA.x + dx * t, pz = PLAZA.z + dz * t;
+        if (Math.hypot(player.x - px, player.z - pz) < 0.65){ suelo = 0.07; break; }
+      }
+    }
+  }
+  hero.position.set(player.x, suelo + Math.abs(Math.sin(bob * 2)) * 0.05 * swing, player.z);
+  const dGiro = ((heading - hero.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  hero.rotation.y += dGiro * 0.15;
+  const paso = Math.sin(bob * 2) * 0.6 * swing;
+  hero.userData.piernaI.rotation.x =  paso;
+  hero.userData.piernaD.rotation.x = -paso;
+  hero.userData.brazoI.rotation.x  = -paso * 0.7;
+  hero.userData.brazoD.rotation.x  =  paso * 0.7;
+
+  /* Animación del modelo GLTF (Captain Barbarossa) */
+  if (heroMixer){
+    heroMixer.update(dt);
+    if (heroAcciones && heroAcciones.idle && heroAcciones.walk){
+      const corriendo = keys.Space || joyMag > 0.92;
+      const querida = andando ? (corriendo && heroAcciones.run ? 'run' : 'walk') : 'idle';
+      if (querida !== accionActual){
+        heroAcciones[accionActual].fadeOut(0.25);
+        heroAcciones[querida].reset().fadeIn(0.25).play();
+        accionActual = querida;
+      }
+    }
+  }
+
+  camera.position.x = player.x * 0.88 - yaw * 2.4;
+  camera.position.y = 3.1 - pitch * 3 + Math.sin(t * 0.9) * 0.02;
+  camera.position.z = player.z + 6.2 + (1 - intro) * 4;
+  camera.lookAt(player.x - yaw * 7, 1.5 + pitch * 7, player.z - 6);
+
+  if (ganaOlas && !silenciado)
+    ganaOlas.gain.value = 0.12 + 0.18 * THREE.MathUtils.clamp((4 - player.x) / 14, 0, 1);
+
+  marUniforms.time.value = t;
+  mar.position.y = 0.03 + Math.sin(t * 0.7) * 0.015;
+
+  /* barca, galeón y boyas mecidas por el mar */
+  barca.position.y = 0.02 + Math.sin(t * 1.1) * 0.05;
+  barca.rotation.z = Math.sin(t * 0.9) * 0.045;
+  barca.rotation.x = Math.sin(t * 0.7 + 1) * 0.03;
+
+  galeon.position.y = 0.05 + Math.sin(t * 0.85) * 0.08;
+  galeon.rotation.z = Math.sin(t * 0.7) * 0.035;
+  galeon.rotation.x = Math.sin(t * 0.5 + 0.5) * 0.02;
+
+  boyas.forEach((b, i) => b.position.y = 0.12 + Math.sin(t * 1.3 + i * 2) * 0.06);
+  espumas.forEach((e, i) => {
+    const s = 1 + Math.sin(t * 1.5 + i * 1.7) * 0.06;
+    e.scale.set(s, s, 1);
+    e.material.opacity = 0.65 + Math.sin(t * 1.5 + i * 1.7) * 0.2;
+  });
+
+  gaviotas.forEach((gv, i) => {
+    const u = gv.userData, a = t * 0.28 + u.fase;
+    gv.position.set(-8 + Math.cos(a) * u.radio, u.alto + Math.sin(t * 0.8 + i) * 0.6,
+      -28 + Math.sin(a) * u.radio);
+    gv.rotation.y = -a - Math.PI / 2;
+    const flap = Math.sin(t * 7 + u.fase) * 0.55;
+    u.alaI.rotation.z =  flap; u.alaD.rotation.z = -flap;
+  });
+
+  /* balón: chútalo al caminar contra él */
+  {
+    const u = pelota.userData;
+    const dx = pelota.position.x - player.x, dz = pelota.position.z - player.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.75 && andando){
+      const f = 6.5 / Math.max(d, 0.2);
+      u.vx = dx / d * f; u.vz = dz / d * f;
+    }
+    pelota.position.x = THREE.MathUtils.clamp(pelota.position.x + u.vx * dt, -4.3, 18.2);
+    pelota.position.z = THREE.MathUtils.clamp(pelota.position.z + u.vz * dt, -55, 15.5);
+    if (pelota.position.x <= -4.3 || pelota.position.x >= 18.2) u.vx *= -0.75;
+    if (pelota.position.z <= -55 || pelota.position.z >= 15.5) u.vz *= -0.75;
+    for (const c of COLISIONES){
+      const bdx = pelota.position.x - c.x, bdz = pelota.position.z - c.z;
+      const bd = Math.hypot(bdx, bdz), bmin = c.r + 0.34;
+      if (bd > 0.0001 && bd < bmin){
+        pelota.position.x = c.x + bdx / bd * bmin;
+        pelota.position.z = c.z + bdz / bd * bmin;
+        const dot = u.vx * bdx / bd + u.vz * bdz / bd;
+        u.vx -= 1.6 * dot * bdx / bd; u.vz -= 1.6 * dot * bdz / bd;
+      }
+    }
+    const v = Math.hypot(u.vx, u.vz);
+    u.vx *= Math.pow(0.35, dt); u.vz *= Math.pow(0.35, dt);
+    pelota.position.y = 0.34 + Math.abs(Math.sin(t * 9)) * Math.min(v * 0.09, 0.5);
+    pelota.rotation.x += u.vz * dt * 2.5; pelota.rotation.z -= u.vx * dt * 2.5;
+  }
+
+  /* cangrejos correteando de lado */
+  cangrejos.forEach(cg => {
+    const u = cg.userData, a = t * 0.7 + u.fase;
+    cg.position.x = u.cx + Math.cos(a) * u.radio * 0.55;
+    cg.position.z = u.cz + Math.sin(a * 1.7) * u.radio;
+    cg.rotation.y = Math.atan2(Math.cos(a * 1.7) * u.radio, -Math.sin(a) * u.radio * 0.55);
+    cg.position.y = 0.09 + Math.abs(Math.sin(t * 10 + u.fase)) * 0.015;
+  });
+
+  nubes.forEach(n => {
+    n.position.x += n.userData.v * dt;
+    if (n.position.x > 60) n.position.x = -70;
+  });
+  marcadores.forEach((mk, i) => {
+    mk.rotation.y = t * 1.6 + i;
+    mk.position.y = 5.6 + Math.sin(t * 2 + i * 1.3) * 0.12;
+  });
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
