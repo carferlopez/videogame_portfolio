@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UMBRAL · Portfolio de Videojuegos</title>
+<meta http-equiv="refresh" content="0; url=./playa-3d/">
+<style>
+  :root { --negro: #0a0806; --hueso: #ece5d8; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--negro);
+    color: var(--hueso);
+    font-family: "Courier New", ui-monospace, monospace;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .loader {
+    text-align: center;
+    border: 1px solid rgba(236,229,216,0.25);
+    padding: 24px 36px;
+    background: rgba(10,8,6,0.8);
+  }
+  .loader strong { font-weight: 700; }
+  .loader p { font-size: 11px; margin-top: 12px; opacity: 0.7; }
+</style>
+<script>
+  window.location.replace('./playa-3d/');
+</script>
+</head>
+<body>
+<div class="loader">
+  <div><strong>UMBRAL</strong> · PORTFOLIO</div>
+  <p>Cargando escena La Playa 3D…</p>
+</div>
+</body>
+</html>

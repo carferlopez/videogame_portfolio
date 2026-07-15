@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/playa-3d/",
+      "permanent": false
+    }
+  ]
+}
