@@ -17,21 +17,52 @@
     font-family:"Courier New", ui-monospace, monospace;
     color:var(--hueso); letter-spacing:.08em;
   }
-  .hud--brand{
-    top:18px; left:18px;
-    background:var(--negro); padding:10px 14px;
-    font-size:11px; line-height:1.5; text-transform:uppercase;
-    border:1px solid rgba(236,229,216,.25);
+  /* retrato + placa de nombre, estilo plataformas */
+  .hud--perfil{ top:14px; left:14px; display:flex; align-items:center; }
+  .hud--perfil img{
+    width:62px; height:auto; position:relative; z-index:1;
+    filter:drop-shadow(0 3px 0 rgba(18,58,102,.45));
+    animation:perfil-late 3.4s ease-in-out infinite alternate;
   }
-  .hud--brand strong{ font-weight:700; }
-  .hud--hint{
-    bottom:16px; right:18px; font-size:10px; text-transform:uppercase;
-    opacity:.7; text-shadow:0 1px 2px rgba(0,0,0,.4);
+  @keyframes perfil-late{ from{ transform:scale(1) rotate(-1.5deg); } to{ transform:scale(1.04) rotate(1.5deg); } }
+  .hud--perfil span{
+    font-family:'Luckiest Guy', 'Comic Sans MS', cursive;
+    font-size:19px; letter-spacing:.06em; color:#fff;
+    text-shadow:0 2px 0 #4a2b13;
+    background:
+      repeating-linear-gradient(93deg, rgba(74,43,19,.18) 0 5px, transparent 5px 24px),
+      linear-gradient(#d9a468, #b07a42 55%, #8f5c2e);
+    border:3px solid #4a2b13; border-radius:10px;
+    padding:9px 16px 3px 20px; margin-left:-12px;
+    box-shadow:0 4px 0 #3a2210;
   }
+  /* teclas cartoon */
+  .hud--hint{ bottom:14px; right:14px; display:flex; align-items:center; font-family:'Press Start 2P', monospace; font-size:8px; color:#fff; text-shadow:0 2px 0 rgba(18,58,102,.8); letter-spacing:.1em; }
+  .tecla{
+    display:inline-grid; place-items:center; font-style:normal;
+    min-width:26px; height:27px; padding:3px 7px 0;
+    font-family:'Luckiest Guy', cursive; font-size:14px; color:#17406b;
+    background:linear-gradient(#ffffff, #dcecf7); border:2.5px solid #17406b;
+    border-radius:7px; box-shadow:0 3px 0 #17406b; margin:0 2px;
+  }
+  .hud--hint em{ font-style:normal; margin:0 12px 0 7px; }
+  /* botón de sonido */
+  .hud--sonido{
+    position:fixed; z-index:10; top:16px; right:16px; width:48px; height:48px;
+    display:grid; place-items:center; cursor:pointer; pointer-events:auto;
+    background:linear-gradient(#ffffff, #dcecf7); border:3px solid #17406b;
+    border-radius:50%; box-shadow:0 4px 0 #17406b;
+  }
+  .hud--sonido:active{ transform:translateY(3px); box-shadow:0 1px 0 #17406b; }
+  .hud--sonido .tacha{ opacity:0; }
+  .hud--sonido.apagado .ondas{ opacity:.15; }
+  .hud--sonido.apagado .tacha{ opacity:1; }
   .hud--estado{
     bottom:16px; left:18px; font-size:10px; text-transform:uppercase;
     background:rgba(10,8,6,.8); padding:6px 10px; max-width:46ch;
+    transition:opacity .8s ease;
   }
+  .hud--estado.oculta{ opacity:0; }
   .joy{
     position:fixed; z-index:20; display:none; pointer-events:none;
     width:110px; height:110px; border-radius:50%;
@@ -213,7 +244,7 @@
     <span class="linea linea--1" aria-hidden="true"><span class="letra" data-l="C">C</span><span class="letra" data-l="A">A</span><span class="letra" data-l="R">R</span><span class="letra" data-l="L">L</span><span class="letra" data-l="O">O</span><span class="letra" data-l="S">S</span></span>
     <span class="linea linea--2" aria-hidden="true"><span class="letra" data-l="F">F</span><span class="letra" data-l="E">E</span><span class="letra" data-l="R">R</span><span class="letra" data-l="N">N</span><span class="letra" data-l="Á">Á</span><span class="letra" data-l="N">N</span><span class="letra" data-l="D">D</span><span class="letra" data-l="E">E</span><span class="letra" data-l="Z">Z</span></span>
   </h1>
-  <div class="inicio__sub">PORTFOLIO</div>
+  <div class="inicio__sub">CREATIVE DEVELOPER &amp; CREATIVE DIRECTOR</div>
   <div class="inicio__press">PRESS START</div>
   <div class="inicio__pie">© 2026 CARLOSMAKES ENTERTAINMENT</div>
 </div>
@@ -235,8 +266,20 @@
   addEventListener('keydown', () => arrancar());
 })();
 </script>
-<div class="hud hud--brand"><strong>CARLOS FERNÁNDEZ</strong> · Portfolio</div>
-<div class="hud hud--hint">wasd/flechas camina · espacio corre · ratón mira · m sonido</div>
+<div class="hud hud--perfil"><img src="assets/cara_carlos.png" alt=""><span>CARLOS</span></div>
+<button class="hud--sonido" id="btn-sonido" aria-label="activar o silenciar sonido">
+  <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+    <path d="M4 12h6l8-7v22l-8-7H4z" fill="#17406b" stroke="#17406b" stroke-width="2" stroke-linejoin="round"/>
+    <path class="ondas" d="M22 11c3 2.5 3 7.5 0 10" fill="none" stroke="#17406b" stroke-width="2.6" stroke-linecap="round"/>
+    <path class="ondas" d="M25.5 8c5 4.5 5 11.5 0 16" fill="none" stroke="#17406b" stroke-width="2.6" stroke-linecap="round"/>
+    <line class="tacha" x1="5" y1="27" x2="27" y2="5" stroke="#c0392b" stroke-width="3.4" stroke-linecap="round"/>
+  </svg>
+</button>
+<div class="hud hud--hint">
+  <i class="tecla">W</i><i class="tecla">A</i><i class="tecla">S</i><i class="tecla">D</i><em>caminar</em>
+  <i class="tecla">ESPACIO</i><em>correr</em>
+  <em style="margin-left:0">ratón · mirar</em>
+</div>
 <div class="hud hud--estado" id="estado">iniciando…</div>
 <div class="joy" id="joy-base"><div class="joy__knob" id="joy-knob"></div></div>
 <div class="fallback" id="fallback">Tu navegador no pudo iniciar WebGL.<br>Prueba en Chrome o Safari actualizados.</div>
@@ -958,6 +1001,8 @@ function pintaEstado(){
   estadoEl.textContent = `assets ${cOk}/${cTot}`
     + (window.ASSETS ? ' | assets.js OK' : ' | assets.js NO CARGADO')
     + (cErrores.length ? ' | FALLO: ' + cErrores.join(', ') : '');
+  /* con todo cargado y sin errores, el chip se desvanece: nada de aspecto beta */
+  estadoEl.classList.toggle('oculta', cTot > 0 && cOk === cTot && !cErrores.length && !!window.ASSETS);
 }
 addEventListener('error', e => { cErrores.push((e.message || 'error').slice(0, 60)); pintaEstado(); });
 
@@ -1016,6 +1061,7 @@ const cargarPersonaje = (ruta) => {
       };
       const clipRun = busca(/^run/i);
       if (clipRun) heroAcciones.run = heroMixer.clipAction(clipRun);
+      heroAcciones.walk.setEffectiveTimeScale(1.1);   // cadencia de paso a juego con la velocidad de andar
       heroAcciones.idle.play();
     }
   }, undefined, () => {});
@@ -1063,11 +1109,21 @@ cargar('assets/barcos/Ship_Large.gltf', gltf => {
   galeon.add(barcote);
 }, undefined, () => {});
 
-/* 6. Vehículos del pack ciudad: furgoneta de los chiringuitos */
+/* 6. Vehículos del pack ciudad: furgoneta de los chiringuitos.
+   Aparcada junto al chiringuito de CONTACTO, a la vista desde el arranque. */
 cargar('assets/vehiculos/van.gltf', gltf => {
   const van = normaliza(gltf.scene, 2.5);
-  van.position.set(17.6, 0, 13.6); van.rotation.y = -1.15;
-  COLISIONES.push({ x: 17.6, z: 13.6, r: 2.5 });
+  van.position.set(18.3, 0, -5.6); van.rotation.y = 0.62;
+  /* colores más vivos: sube saturación y luz de cada material del modelo */
+  van.traverse(o => {
+    if (o.isMesh && o.material && o.material.color){
+      o.material = o.material.clone();
+      const hsl = {};
+      o.material.color.getHSL(hsl);
+      o.material.color.setHSL(hsl.h, Math.min(1, hsl.s * 1.9 + 0.08), Math.min(0.72, hsl.l * 1.18));
+    }
+  });
+  COLISIONES.push({ x: 18.3, z: -5.6, r: 2.5 });
   scene.add(van);
 });
 
@@ -1174,15 +1230,17 @@ function programaGaviota(){
   setTimeout(() => { chillido(); programaGaviota(); }, 5000 + Math.random() * 9000);
 }
 ['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, iniciaAudio, { once: true }));
-addEventListener('keydown', e => {
-  if (e.code === 'KeyM' && ganaMaster){
-    silenciado = !silenciado;
-    const t = audioCtx.currentTime;
-    ganaMaster.gain.cancelScheduledValues(t);
-    ganaMaster.gain.setValueAtTime(ganaMaster.gain.value, t);
-    ganaMaster.gain.linearRampToValueAtTime(silenciado ? 0 : 0.9, t + 0.35);
-  }
-});
+function alternaSonido(){
+  if (!ganaMaster) return;
+  silenciado = !silenciado;
+  const t = audioCtx.currentTime;
+  ganaMaster.gain.cancelScheduledValues(t);
+  ganaMaster.gain.setValueAtTime(ganaMaster.gain.value, t);
+  ganaMaster.gain.linearRampToValueAtTime(silenciado ? 0 : 0.9, t + 0.35);
+  document.getElementById('btn-sonido').classList.toggle('apagado', silenciado);
+}
+addEventListener('keydown', e => { if (e.code === 'KeyM') alternaSonido(); });
+document.getElementById('btn-sonido').addEventListener('click', () => alternaSonido());
 
 /* ============ CÁMARA Y CONTROL DE JUGADOR ============ */
 const target = { yaw: 0, pitch: 0 };
@@ -1247,6 +1305,7 @@ addEventListener('keyup', e => keys[e.code] = false);
 
 const player = { x: PLAZA.x, z: PLAZA.z + 1.5 };
 let yaw = 0, pitch = 0, bob = 0, swing = 0, heading = Math.PI;
+let pov = 0;   // 0 = tercera persona, 1 = POV dentro del chiringuito
 let t0 = performance.now(), last = t0;
 
 /* Límite Z (línea de los chiringuitos): el jugador no puede pasar detrás de ellos */
@@ -1269,7 +1328,7 @@ function animate(now){
   const strafe = ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft)  ? 1 : 0) + joy.vx;
   const andando = Math.abs(fwd) + Math.abs(strafe) > 0.12;
   if (andando){
-    const speed = (keys.Space || joyMag > 0.92) ? 7 : 3.6;   // stick a fondo = correr
+    const speed = (keys.Space || joyMag > 0.92) ? 7 : 2.5;   // andar calibrado con la zancada de la animación (sin patinar)
     const len = Math.max(Math.hypot(fwd, strafe), 1);
     const vx = (fwd * -Math.sin(yaw) + strafe *  Math.cos(yaw)) / len;
     const vz = (fwd * -Math.cos(yaw) + strafe * -Math.sin(yaw)) / len;
@@ -1293,8 +1352,9 @@ function animate(now){
   /* altura del terreno pisado: tarima > plaza > pasarela > arena */
   let suelo = 0.02;
   if (Math.hypot(player.x - PLAZA.x, player.z - PLAZA.z) < 3.1) suelo = 0.13;
+  let sobreTarima = false;
   for (const { g } of chiringuitosG){
-    if (Math.abs(player.x - g.position.x) < 2.4 && Math.abs(player.z - g.position.z) < 2.4) suelo = 0.29;
+    if (Math.abs(player.x - g.position.x) < 2.4 && Math.abs(player.z - g.position.z) < 2.4){ suelo = 0.29; sobreTarima = true; }
   }
   if (suelo === 0.02){
     for (const { g } of chiringuitosG){
@@ -1330,10 +1390,30 @@ function animate(now){
     }
   }
 
-  camera.position.x = player.x * 0.88 - yaw * 2.4;
-  camera.position.y = 3.1 - pitch * 3 + Math.sin(t * 0.9) * 0.02;
-  camera.position.z = player.z + 6.2 + (1 - intro) * 4;
-  camera.lookAt(player.x - yaw * 7, 1.5 + pitch * 7, player.z - 6);
+  /* POV: al subir a la tarima de un chiringuito la cámara pasa a los ojos del personaje */
+  pov += ((sobreTarima ? 1 : 0) - pov) * (sobreTarima ? 0.055 : 0.085);
+  const k = THREE.MathUtils.smoothstep(pov, 0.001, 1);
+  /* tercera persona */
+  const cx3 = player.x * 0.88 - yaw * 2.4;
+  const cy3 = 3.1 - pitch * 3 + Math.sin(t * 0.9) * 0.02;
+  const cz3 = player.z + 6.2 + (1 - intro) * 4;
+  const lx3 = player.x - yaw * 7, ly3 = 1.5 + pitch * 7, lz3 = player.z - 6;
+  /* primera persona: a la altura de los ojos, con más libertad de giro para mirar el interior */
+  const alturaOjos = suelo + 1.5 + Math.sin(bob * 2) * 0.02 * swing;
+  const yawPov = yaw * 2.6, pitchPov = pitch * 2.6;
+  const lx1 = player.x - Math.sin(yawPov) * 6;
+  const ly1 = alturaOjos + pitchPov * 6;
+  const lz1 = player.z - Math.cos(yawPov) * 6;
+  camera.position.x = THREE.MathUtils.lerp(cx3, player.x, k);
+  camera.position.y = THREE.MathUtils.lerp(cy3, alturaOjos, k);
+  camera.position.z = THREE.MathUtils.lerp(cz3, player.z + 0.15, k);
+  camera.lookAt(
+    THREE.MathUtils.lerp(lx3, lx1, k),
+    THREE.MathUtils.lerp(ly3, ly1, k),
+    THREE.MathUtils.lerp(lz3, lz1, k)
+  );
+  /* el héroe desaparece cuando estamos dentro de sus ojos */
+  hero.visible = k < 0.55;
 
   if (ganaOlas && !silenciado)
     ganaOlas.gain.value = 0.12 + 0.18 * THREE.MathUtils.clamp((4 - player.x) / 14, 0, 1);
