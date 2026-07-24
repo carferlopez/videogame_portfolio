@@ -2,3 +2,8 @@
 .claude
 .gemini
 *.log
+# material fuente que no necesita la web
+Meshy_AI_Casual_Guy_biped/
+Meshy_AI_Casual_Guy_biped*.zip
+Face_cropped_on_green_background_*.jpeg
+Fondo de *.png
