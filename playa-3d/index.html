@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>UMBRAL — La Playa · prototipo 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Luckiest+Guy&display=swap" rel="stylesheet">
 <style>
   :root{ --negro:#0a0806; --hueso:#ece5d8; }
   *{ margin:0; padding:0; box-sizing:border-box; }
@@ -44,9 +47,194 @@
     color:var(--hueso); font-family:ui-monospace,monospace; font-size:13px;
     text-align:center; padding:2rem;
   }
+
+  /* ============ PANTALLA DE INICIO · PRESS START ============ */
+  #inicio{
+    position:fixed; inset:0; z-index:999; cursor:pointer; overflow:hidden;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:clamp(18px, 4vmin, 34px); padding:4vmin;
+    font-family:'Press Start 2P', "Courier New", ui-monospace, monospace;
+    color:var(--hueso); text-align:center; user-select:none;
+    background:linear-gradient(#2f9be8 0%, #63b9ef 45%, #b5e3f6 78%, #eafaf6 100%);
+    transition:opacity 1s ease;
+  }
+  #inicio.oculto{ opacity:0; pointer-events:none; }
+  /* cielo con nubes cartoon a la deriva */
+  .inicio__cielo{ position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .nube{
+    position:absolute; left:0; width:11em; height:3.2em;
+    background:linear-gradient(#ffffff 55%, #e4f3fb); border-radius:10em;
+    animation:inicio-deriva linear infinite;
+  }
+  .nube::before, .nube::after{
+    content:""; position:absolute; bottom:42%; background:inherit; border-radius:50%;
+  }
+  .nube::before{ left:16%; width:3.6em; height:3.6em; }
+  .nube::after{ left:46%; width:4.8em; height:4.8em; }
+  .nube--1{ font-size:15px; top:9%;  animation-duration:90s;  animation-delay:-15s; }
+  .nube--2{ font-size:10px; top:26%; animation-duration:130s; animation-delay:-70s; opacity:.92; }
+  .nube--3{ font-size:8px;  top:5%;  animation-duration:160s; animation-delay:-110s; opacity:.85; }
+  .nube--4{ font-size:12px; top:52%; animation-duration:110s; animation-delay:-40s; opacity:.9; }
+  .nube--5{ font-size:7px;  top:38%; animation-duration:150s; animation-delay:-125s; opacity:.8; }
+  @keyframes inicio-deriva{ from{ transform:translateX(-26em); } to{ transform:translateX(112vw); } }
+  /* viñeta + scanlines CRT, suaves sobre cielo claro */
+  #inicio::before{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(85% 75% at 50% 44%, transparent 58%, rgba(24,70,130,.28) 100%);
+  }
+  #inicio::after{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(10,40,90,.07) 0 2px, transparent 2px 4px);
+  }
+  /* la cara: respira (escala) y se mece (giro), periodos distintos para que sea orgánico */
+  .inicio__mece{
+    position:relative; z-index:2;
+    animation:inicio-mecer 4.6s ease-in-out infinite alternate;
+  }
+  @keyframes inicio-mecer{ from{ transform:rotate(-2deg); } to{ transform:rotate(2deg); } }
+  .inicio__cara{
+    display:block; width:clamp(150px, 34vmin, 250px); height:auto;
+    filter:drop-shadow(0 12px 0 rgba(4,4,18,.35));
+    animation:inicio-respirar 3.2s ease-in-out infinite alternate;
+  }
+  @keyframes inicio-respirar{ from{ transform:scale(1); } to{ transform:scale(1.045); } }
+  .inicio__titulo{
+    position:relative; z-index:2; margin:0;
+    font-family:'Luckiest Guy', 'Comic Sans MS', cursive;
+    font-weight:400; line-height:1.12; letter-spacing:.02em;
+    font-size:clamp(40px, 10vmin, 84px);
+    filter:drop-shadow(0 10px 16px rgba(20,40,90,.35));
+  }
+  .inicio__titulo .linea{ display:block; position:relative; }
+  .inicio__titulo .linea--2{ font-size:.66em; margin-top:.28em; }
+  /* colores por línea: CARLOS dorado, FERNÁNDEZ azul (muy Crash) */
+  .linea--1{ --tinta:#3a1d07; --ext:#8a4a12; --g1:#fff6c9; --g2:#ffd84a; --g3:#ffa716; --g4:#f07f18; }
+  .linea--2{ --tinta:#0e2a4a; --ext:#155a94; --g1:#f0fbff; --g2:#9fe2ff; --g3:#3fb1f0; --g4:#1876c8; }
+  /* cartel de madera bajo FERNÁNDEZ */
+  .linea--2::before{
+    content:""; position:absolute; z-index:-1;
+    inset:.26em -.45em -.02em;
+    background:
+      repeating-linear-gradient(93deg, rgba(74,43,19,.20) 0 .10em, transparent .10em .5em, rgba(74,43,19,.12) .5em .58em, transparent .58em 1.05em),
+      linear-gradient(#d9a468, #b07a42 55%, #8f5c2e);
+    border:.055em solid #4a2b13; border-radius:.22em;
+    transform:rotate(-1.4deg);
+    box-shadow:0 .14em 0 #3a2210, 0 .35em .6em rgba(20,40,90,.35);
+  }
+  /* hojas de palmera asomando tras el logo */
+  .inicio__palma{ position:absolute; z-index:-2; top:.55em; left:-1.05em; width:2em; height:2em; }
+  .inicio__palma--der{ left:auto; right:-1.05em; transform:scaleX(-1); }
+  .inicio__palma i{
+    position:absolute; left:.2em; top:.55em; width:1.7em; height:.58em;
+    background:linear-gradient(100deg, #56c765, #2f9245);
+    border:.05em solid #17612f; border-radius:0 100% 0 100%;
+    transform-origin:0 50%;
+  }
+  .inicio__palma i:nth-child(1){ transform:rotate(-58deg); }
+  .inicio__palma i:nth-child(2){ transform:rotate(-22deg); width:1.85em; }
+  .inicio__palma i:nth-child(3){ transform:rotate(14deg); width:1.5em; }
+  /* letras sueltas con extrusión 3D y arco de logo */
+  .letra{
+    display:inline-block; position:relative; padding:.12em .03em .06em;
+    --r:0deg; --y:0px;
+    color:var(--tinta); -webkit-text-stroke:.13em var(--tinta);
+    text-shadow:
+      0 .045em 0 var(--ext),
+      0 .09em 0 var(--ext),
+      0 .13em 0 var(--ext),
+      0 .17em .04em rgba(15,30,60,.4);
+    animation:inicio-botar 2.6s ease-in-out infinite;
+  }
+  .letra::after{
+    content:attr(data-l); position:absolute; inset:0; padding:inherit;
+    -webkit-text-stroke:0; text-shadow:none;
+    background:linear-gradient(var(--g1) 0%, var(--g2) 42%, var(--g3) 75%, var(--g4) 100%);
+    -webkit-background-clip:text; background-clip:text;
+    -webkit-text-fill-color:transparent; color:var(--g2);
+  }
+  /* arco: las puntas caen, el centro sube, con giro hacia fuera */
+  .linea--1 .letra:nth-child(1){ --y:.18em; --r:-8deg; }
+  .linea--1 .letra:nth-child(2){ --y:.06em; --r:-4deg; }
+  .linea--1 .letra:nth-child(3){ --y:0em;   --r:-1deg; }
+  .linea--1 .letra:nth-child(4){ --y:0em;   --r:1deg; }
+  .linea--1 .letra:nth-child(5){ --y:.06em; --r:4deg; }
+  .linea--1 .letra:nth-child(6){ --y:.18em; --r:8deg; }
+  .linea--2 .letra:nth-child(1){ --y:.11em; --r:-6deg; }
+  .linea--2 .letra:nth-child(2){ --y:.05em; --r:-4deg; }
+  .linea--2 .letra:nth-child(3){ --y:.02em; --r:-2deg; }
+  .linea--2 .letra:nth-child(4){ --y:0em;   --r:-1deg; }
+  .linea--2 .letra:nth-child(5){ --y:0em;   --r:0deg; }
+  .linea--2 .letra:nth-child(6){ --y:0em;   --r:1deg; }
+  .linea--2 .letra:nth-child(7){ --y:.02em; --r:2deg; }
+  .linea--2 .letra:nth-child(8){ --y:.05em; --r:4deg; }
+  .linea--2 .letra:nth-child(9){ --y:.11em; --r:6deg; }
+  @keyframes inicio-botar{
+    0%,100%{ transform:translateY(var(--y)) rotate(var(--r)) scale(1); }
+    50%    { transform:translateY(calc(var(--y) - .05em)) rotate(var(--r)) scale(1.04); }
+  }
+  /* ola: cada letra entra en el bote con un pelín de retraso */
+  .linea .letra:nth-child(1){ animation-delay:-.00s; }
+  .linea .letra:nth-child(2){ animation-delay:-.15s; }
+  .linea .letra:nth-child(3){ animation-delay:-.30s; }
+  .linea .letra:nth-child(4){ animation-delay:-.45s; }
+  .linea .letra:nth-child(5){ animation-delay:-.60s; }
+  .linea .letra:nth-child(6){ animation-delay:-.75s; }
+  .linea .letra:nth-child(7){ animation-delay:-.90s; }
+  .linea .letra:nth-child(8){ animation-delay:-1.05s; }
+  .linea .letra:nth-child(9){ animation-delay:-1.20s; }
+  .inicio__sub{
+    z-index:2; font-size:clamp(8px, 1.7vmin, 12px); letter-spacing:.3em;
+    color:#17406b; text-shadow:0 1px 0 rgba(255,255,255,.6); opacity:.95;
+  }
+  .inicio__press{
+    z-index:2; margin-top:1vmin;
+    font-size:clamp(11px, 2.4vmin, 17px); letter-spacing:.22em;
+    color:#fff; text-shadow:0 3px 0 #123a66, 0 6px 10px rgba(18,58,102,.45);
+    animation:inicio-parpadeo 1.1s steps(2, jump-none) infinite;
+  }
+  @keyframes inicio-parpadeo{ 50%{ opacity:0; } }
+  #inicio.arrancando .inicio__press{ animation-duration:.12s; }
+  .inicio__pie{
+    position:absolute; bottom:3vmin; left:0; right:0; z-index:2;
+    font-size:clamp(7px, 1.4vmin, 10px); letter-spacing:.14em;
+    color:rgba(23,64,107,.65); text-shadow:0 1px 0 rgba(255,255,255,.5);
+  }
 </style>
 </head>
 <body>
+<div id="inicio">
+  <div class="inicio__cielo">
+    <i class="nube nube--1"></i><i class="nube nube--2"></i><i class="nube nube--3"></i><i class="nube nube--4"></i><i class="nube nube--5"></i>
+  </div>
+  <div class="inicio__mece"><img class="inicio__cara" src="assets/cara_carlos.png" alt="Carlos Fernández"></div>
+  <h1 class="inicio__titulo" aria-label="Carlos Fernández">
+    <span class="inicio__palma inicio__palma--izq" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="inicio__palma inicio__palma--der" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="linea linea--1" aria-hidden="true"><span class="letra" data-l="C">C</span><span class="letra" data-l="A">A</span><span class="letra" data-l="R">R</span><span class="letra" data-l="L">L</span><span class="letra" data-l="O">O</span><span class="letra" data-l="S">S</span></span>
+    <span class="linea linea--2" aria-hidden="true"><span class="letra" data-l="F">F</span><span class="letra" data-l="E">E</span><span class="letra" data-l="R">R</span><span class="letra" data-l="N">N</span><span class="letra" data-l="Á">Á</span><span class="letra" data-l="N">N</span><span class="letra" data-l="D">D</span><span class="letra" data-l="E">E</span><span class="letra" data-l="Z">Z</span></span>
+  </h1>
+  <div class="inicio__sub">UMBRAL · PORTFOLIO 3D</div>
+  <div class="inicio__press">PRESS START</div>
+  <div class="inicio__pie">© 2026 CARLOSMAKES ENTERTAINMENT · LA PLAYA</div>
+</div>
+<script>
+(function(){
+  const inicio = document.getElementById('inicio');
+  let arrancado = false;
+  function arrancar(){
+    if (arrancado) return;
+    arrancado = true;
+    inicio.classList.add('arrancando');          // parpadeo rápido, como al confirmar en un juego real
+    setTimeout(() => {
+      inicio.classList.add('oculto');            // fade hacia el juego
+      setTimeout(() => inicio.remove(), 1100);
+    }, 850);
+  }
+  inicio.addEventListener('click', arrancar);
+  inicio.addEventListener('touchstart', arrancar, { passive:true });
+  addEventListener('keydown', () => arrancar());
+})();
+</script>
 <div class="hud hud--brand"><strong>UMBRAL</strong> · La Playa<br>prototipo 3D · low-poly</div>
 <div class="hud hud--hint">wasd/flechas camina · espacio corre · ratón mira · m sonido</div>
 <div class="hud hud--estado" id="estado">iniciando…</div>
