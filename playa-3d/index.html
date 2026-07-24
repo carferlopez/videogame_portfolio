@@ -63,6 +63,14 @@
     transition:opacity .8s ease;
   }
   .hud--estado.oculta{ opacity:0; }
+  /* aviso en modo POV */
+  .hud--pov{
+    top:20px; left:50%; transform:translateX(-50%);
+    font-family:'Press Start 2P', monospace; font-size:9px; letter-spacing:.18em;
+    color:#fff; text-shadow:0 2px 0 rgba(18,58,102,.8);
+    opacity:0; transition:opacity .5s ease;
+  }
+  .hud--pov.visible{ opacity:.92; }
   .joy{
     position:fixed; z-index:20; display:none; pointer-events:none;
     width:110px; height:110px; border-radius:50%;
@@ -281,6 +289,7 @@
   <em style="margin-left:0">ratón · mirar</em>
 </div>
 <div class="hud hud--estado" id="estado">iniciando…</div>
+<div class="hud hud--pov" id="pov-hint">ESC · SALIR</div>
 <div class="joy" id="joy-base"><div class="joy__knob" id="joy-knob"></div></div>
 <div class="fallback" id="fallback">Tu navegador no pudo iniciar WebGL.<br>Prueba en Chrome o Safari actualizados.</div>
 
@@ -713,7 +722,7 @@ function chiringuito(x, z, color, nombre, estilo){
   mk.position.set(0, 5.6, 0); g.add(mk);
   marcadores.push(mk);
 
-  chiringuitosG.push({ g, phGroup });
+  chiringuitosG.push({ g, phGroup, cartel });
 }
 /* arco de 4 frente al punto de aparición — elección a la vista, distancias iguales */
 chiringuito(-1.5, -8.5, WAYFINDING.cian,    'QUIÉN SOY', 0);   // madera + toldo a rayas
@@ -1306,6 +1315,28 @@ addEventListener('keyup', e => keys[e.code] = false);
 const player = { x: PLAZA.x, z: PLAZA.z + 1.5 };
 let yaw = 0, pitch = 0, bob = 0, swing = 0, heading = Math.PI;
 let pov = 0;   // 0 = tercera persona, 1 = POV dentro del chiringuito
+
+/* POV bajo demanda: se entra CLICANDO el letrero del chiringuito (no por proximidad) */
+let povActivo = false, povChiringuito = null;
+const rayo = new THREE.Raycaster();
+const punteroNDC = new THREE.Vector2();
+function cartelBajoPuntero(cx, cy){
+  punteroNDC.set((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1);
+  rayo.setFromCamera(punteroNDC, camera);
+  const hits = rayo.intersectObjects(chiringuitosG.map(c => c.cartel), false);
+  return hits.length ? chiringuitosG.find(c => c.cartel === hits[0].object) : null;
+}
+addEventListener('click', e => {
+  if (povActivo) return;
+  const c = cartelBajoPuntero(e.clientX, e.clientY);
+  if (c && Math.hypot(player.x - c.g.position.x, player.z - c.g.position.z) < 5.2){
+    povActivo = true; povChiringuito = c;
+  }
+});
+addEventListener('mousemove', e => {
+  document.body.style.cursor = (!povActivo && cartelBajoPuntero(e.clientX, e.clientY)) ? 'pointer' : '';
+});
+addEventListener('keydown', e => { if (e.code === 'Escape') povActivo = false; });
 let t0 = performance.now(), last = t0;
 
 /* Límite Z (línea de los chiringuitos): el jugador no puede pasar detrás de ellos */
@@ -1390,8 +1421,13 @@ function animate(now){
     }
   }
 
-  /* POV: al subir a la tarima de un chiringuito la cámara pasa a los ojos del personaje */
-  pov += ((sobreTarima ? 1 : 0) - pov) * (sobreTarima ? 0.055 : 0.085);
+  /* POV: activado con clic en el letrero; se sale con ESC o alejándose */
+  if (povActivo && povChiringuito){
+    const dPov = Math.hypot(player.x - povChiringuito.g.position.x, player.z - povChiringuito.g.position.z);
+    if (dPov > 5.6) povActivo = false;
+  }
+  document.getElementById('pov-hint').classList.toggle('visible', pov > 0.5);
+  pov += ((povActivo ? 1 : 0) - pov) * (povActivo ? 0.055 : 0.085);
   const k = THREE.MathUtils.smoothstep(pov, 0.001, 1);
   /* tercera persona */
   const cx3 = player.x * 0.88 - yaw * 2.4;
