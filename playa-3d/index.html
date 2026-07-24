@@ -46,6 +46,8 @@
     border-radius:7px; box-shadow:0 3px 0 #17406b; margin:0 2px;
   }
   .hud--hint em{ font-style:normal; margin:0 12px 0 7px; }
+  .cruceta{ display:inline-flex; flex-direction:column; align-items:center; gap:2px; }
+  .cruceta .tecla{ font-family:'Press Start 2P', monospace; font-size:11px; padding-top:5px; }
   /* botón de sonido */
   .hud--sonido{
     position:fixed; z-index:10; top:16px; right:16px; width:48px; height:48px;
@@ -284,7 +286,10 @@
   </svg>
 </button>
 <div class="hud hud--hint">
-  <i class="tecla">W</i><i class="tecla">A</i><i class="tecla">S</i><i class="tecla">D</i><em>caminar</em>
+  <span class="cruceta">
+    <i class="tecla">↑</i>
+    <span><i class="tecla">←</i><i class="tecla">↓</i><i class="tecla">→</i></span>
+  </span><em>caminar</em>
   <i class="tecla">ESPACIO</i><em>correr</em>
   <em style="margin-left:0">ratón · mirar</em>
 </div>
