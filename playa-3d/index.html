@@ -59,6 +59,25 @@
   .hud--sonido .tacha{ opacity:0; }
   .hud--sonido.apagado .ondas{ opacity:.15; }
   .hud--sonido.apagado .tacha{ opacity:1; }
+  /* boton de hora del dia — mismo lenguaje que el de sonido */
+  .hud--hora{
+    position:fixed; z-index:10; top:76px; right:16px; width:48px; height:48px;
+    display:grid; place-items:center; cursor:pointer; pointer-events:auto;
+    background:linear-gradient(#ffffff, #dcecf7); border:3px solid #17406b;
+    border-radius:50%; box-shadow:0 4px 0 #17406b;
+  }
+  .hud--hora:active{ transform:translateY(3px); box-shadow:0 1px 0 #17406b; }
+  .hud--hora .etiqueta{
+    position:absolute; top:53px; left:50%; transform:translateX(-50%);
+    font-family:'Press Start 2P', monospace; font-size:7px; letter-spacing:.1em;
+    color:#fff; text-shadow:0 2px 0 rgba(18,58,102,.85);
+    white-space:nowrap; pointer-events:none;
+  }
+  .hud--hora .g-sol, .hud--hora .g-luna, .hud--hora .g-horizonte{ display:none; }
+  .hud--hora[data-icono="sol"]   .g-sol{ display:block; }
+  .hud--hora[data-icono="tarde"] .g-sol{ display:block; }
+  .hud--hora[data-icono="tarde"] .g-horizonte{ display:block; }
+  .hud--hora[data-icono="luna"]  .g-luna{ display:block; }
   .hud--estado{
     bottom:16px; left:18px; font-size:10px; text-transform:uppercase;
     background:rgba(10,8,6,.8); padding:6px 10px; max-width:46ch;
@@ -284,6 +303,26 @@
     <path class="ondas" d="M25.5 8c5 4.5 5 11.5 0 16" fill="none" stroke="#17406b" stroke-width="2.6" stroke-linecap="round"/>
     <line class="tacha" x1="5" y1="27" x2="27" y2="5" stroke="#c0392b" stroke-width="3.4" stroke-linecap="round"/>
   </svg>
+</button>
+<button class="hud--hora" id="btn-hora" data-icono="sol" aria-label="cambiar la hora del día">
+  <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+    <g class="g-sol">
+      <circle cx="16" cy="15" r="5.6" fill="#17406b"/>
+      <g stroke="#17406b" stroke-width="2.3" stroke-linecap="round">
+        <line x1="16" y1="2.5" x2="16" y2="6"/><line x1="16" y1="24" x2="16" y2="27.5"/>
+        <line x1="2.5" y1="15" x2="6" y2="15"/><line x1="26" y1="15" x2="29.5" y2="15"/>
+        <line x1="6.7" y1="5.7" x2="9.2" y2="8.2"/><line x1="22.8" y1="21.8" x2="25.3" y2="24.3"/>
+        <line x1="6.7" y1="24.3" x2="9.2" y2="21.8"/><line x1="22.8" y1="8.2" x2="25.3" y2="5.7"/>
+      </g>
+    </g>
+    <g class="g-luna">
+      <path d="M21 5.5A11.5 11.5 0 1 0 26 21.5 9.2 9.2 0 0 1 21 5.5z" fill="#17406b"/>
+    </g>
+    <g class="g-horizonte">
+      <line x1="3.5" y1="24.5" x2="28.5" y2="24.5" stroke="#17406b" stroke-width="2.6" stroke-linecap="round"/>
+    </g>
+  </svg>
+  <span class="etiqueta" id="hora-etiqueta">AUTO</span>
 </button>
 <div class="hud hud--hint">
   <span class="cruceta">
@@ -1030,19 +1069,16 @@ const _cA = new THREE.Color(), _cB = new THREE.Color();
 const mezclaCol = (destino, ha, hb, k) => destino.copy(_cA.setHex(ha)).lerp(_cB.setHex(hb), k);
 const L = THREE.MathUtils.lerp;
 
-const HORA_FIJA = (() => {
-  const v = new URLSearchParams(location.search).get('hora');
-  return v === null ? null : ((parseFloat(v) % 24) + 24) % 24;
-})();
-
-function horaDelVisitante(){
-  if (HORA_FIJA !== null) return HORA_FIJA;
+function horaReal(){
   const d = new Date();
   return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
 }
 
-function aplicarHora(){
-  const [a, b, k] = clavesHora(horaDelVisitante());
+const btnHora = document.getElementById('btn-hora');
+const etiquetaHora = document.getElementById('hora-etiqueta');
+
+function aplicarHora(h){
+  const [a, b, k] = clavesHora(h);
   mezclaCol(skyMat.uniforms.top.value, a.cTop,  b.cTop,  k);
   mezclaCol(skyMat.uniforms.low.value, a.cBajo, b.cBajo, k);
   mezclaCol(scene.fog.color,            a.niebla, b.niebla, k);
@@ -1065,6 +1101,9 @@ function aplicarHora(){
   mezclaCol(nubeMat.color, a.nube, b.nube, k);
 
   const noche = L(a.noche, b.noche, k);
+  /* el icono del HUD refleja siempre lo que se esta viendo */
+  const icono = noche > 0.45 ? 'luna' : (noche > 0.05 ? 'tarde' : 'sol');
+  if (btnHora.dataset.icono !== icono) btnHora.dataset.icono = icono;
   estrellas.material.opacity = noche * 0.95;
   luna.material.opacity = noche;
   luna.visible = noche > 0.02;
@@ -1073,8 +1112,42 @@ function aplicarHora(){
     luna.lookAt(0, 6, 0);
   }
 }
-aplicarHora();
-let _relojAcc = 0;   /* refresco perezoso: el sol se mueve muy despacio */
+/* ---- modos del HUD: se rota con el boton o con la tecla L ---- */
+const MODOS = [
+  { etiqueta:'AUTO',      hora:null },   /* la hora local de quien visita */
+  { etiqueta:'DÍA',       hora:14   },
+  { etiqueta:'ATARDECER', hora:20.6 },
+  { etiqueta:'NOCHE',     hora:1    },
+];
+{ /* ?hora=21 en la URL redefine el modo AUTO y sigue funcionando igual */
+  const v = new URLSearchParams(location.search).get('hora');
+  if (v !== null && isFinite(parseFloat(v))){
+    const h = ((parseFloat(v) % 24) + 24) % 24;
+    MODOS[0].hora = h;
+    MODOS[0].etiqueta = h.toFixed(0) + 'H';
+  }
+}
+
+let modoHora = 0;
+let horaVisual = MODOS[0].hora === null ? horaReal() : MODOS[0].hora;
+let horaDestino = null;      /* !== null mientras corre el time-lapse */
+let velTimelapse = 0;        /* horas por segundo */
+let _relojAcc = 0;           /* refresco perezoso en AUTO: el sol se mueve muy despacio */
+
+function cambiaModoHora(i){
+  modoHora = ((i % MODOS.length) + MODOS.length) % MODOS.length;
+  const destino = MODOS[modoHora].hora === null ? horaReal() : MODOS[modoHora].hora;
+  const avance = ((destino - horaVisual) % 24 + 24) % 24;   /* siempre hacia delante */
+  horaDestino = destino;
+  velTimelapse = Math.max(avance, 0.01) / 1.7;              /* ~1,7 s de time-lapse */
+  etiquetaHora.textContent = MODOS[modoHora].etiqueta;
+  btnHora.blur();                                           /* que ESPACIO siga siendo correr */
+}
+etiquetaHora.textContent = MODOS[0].etiqueta;
+btnHora.addEventListener('click', () => cambiaModoHora(modoHora + 1));
+addEventListener('keydown', e => { if (e.code === 'KeyL') cambiaModoHora(modoHora + 1); });
+
+aplicarHora(horaVisual);
 
 
 /* ============ PERSONAJE (Avatar Captain Barbarossa) ============ */
@@ -1648,8 +1721,21 @@ function animate(now){
     mk.position.y = 5.6 + Math.sin(t * 2 + i * 1.3) * 0.12;
   });
 
-  _relojAcc += dt;
-  if (_relojAcc > 20){ _relojAcc = 0; aplicarHora(); }
+  /* hora del dia: time-lapse hacia el modo elegido, o seguimiento del reloj real */
+  if (horaDestino !== null){
+    const paso = velTimelapse * dt;
+    const resta = ((horaDestino - horaVisual) % 24 + 24) % 24;
+    if (resta <= paso){ horaVisual = horaDestino; horaDestino = null; }
+    else horaVisual = (horaVisual + paso) % 24;
+    aplicarHora(horaVisual);
+  } else {
+    _relojAcc += dt;
+    if (_relojAcc > 20){
+      _relojAcc = 0;
+      if (MODOS[modoHora].hora === null) horaVisual = horaReal();
+      aplicarHora(horaVisual);
+    }
+  }
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
