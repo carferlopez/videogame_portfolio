@@ -84,6 +84,8 @@
     transition:opacity .8s ease;
   }
   .hud--estado.oculta{ opacity:0; }
+  /* en tactil el rincon de abajo a la izquierda es del pulgar: el estado se sube */
+  body.tactil .hud--estado{ top:86px; left:14px; bottom:auto; max-width:52vw; font-size:9px; }
   /* aviso en modo POV */
   .hud--pov{
     top:20px; left:50%; transform:translateX(-50%);
@@ -92,15 +94,31 @@
     opacity:0; transition:opacity .5s ease;
   }
   .hud--pov.visible{ opacity:.92; }
+  /* joystick tactil: siempre a la vista abajo a la izquierda, salta al pulgar al tocar */
   .joy{
-    position:fixed; z-index:20; display:none; pointer-events:none;
-    width:110px; height:110px; border-radius:50%;
-    border:2px solid rgba(236,229,216,.5); background:rgba(10,8,6,.25);
+    position:fixed; z-index:20; left:20px; bottom:30px; display:none; pointer-events:none;
+    width:112px; height:112px; border-radius:50%;
+    background:radial-gradient(rgba(255,255,255,.40), rgba(214,235,247,.22));
+    border:3px solid rgba(23,64,107,.7);
+    box-shadow:0 4px 0 rgba(23,64,107,.5), inset 0 0 18px rgba(255,255,255,.35);
+    opacity:.82;
+    transition:transform .34s cubic-bezier(.2,.85,.3,1), opacity .25s ease;
   }
+  body.tactil .joy{ display:block; }
+  .joy.agarrado{ transition:opacity .25s ease; opacity:1; }
+  .joy__flechas{ position:absolute; inset:0; width:100%; height:100%; }
+  .joy:not(.agarrado) .joy__flechas{ animation:joy-respira 2.6s ease-in-out infinite; }
+  @keyframes joy-respira{ 0%,100%{ opacity:.45; } 50%{ opacity:1; } }
   .joy__knob{
-    position:absolute; left:50%; top:50%; margin:-24px 0 0 -24px;
-    width:48px; height:48px; border-radius:50%;
-    background:rgba(236,229,216,.75);
+    position:absolute; left:50%; top:50%; margin:-25px 0 0 -25px;
+    width:50px; height:50px; border-radius:50%;
+    background:linear-gradient(#ffffff, #dcecf7);
+    border:3px solid #17406b; box-shadow:0 3px 0 #17406b;
+  }
+  .joy__label{
+    position:absolute; left:50%; top:-16px; transform:translateX(-50%);
+    font-family:'Press Start 2P', monospace; font-size:7px; letter-spacing:.12em;
+    color:#fff; text-shadow:0 2px 0 rgba(18,58,102,.85); white-space:nowrap;
   }
   .fallback{
     position:fixed; inset:0; display:none; place-items:center;
@@ -334,7 +352,18 @@
 </div>
 <div class="hud hud--estado" id="estado">iniciando…</div>
 <div class="hud hud--pov" id="pov-hint">ESC · SALIR</div>
-<div class="joy" id="joy-base"><div class="joy__knob" id="joy-knob"></div></div>
+<div class="joy" id="joy-base" aria-hidden="true">
+  <svg class="joy__flechas" viewBox="0 0 112 112" aria-hidden="true">
+    <g fill="#17406b">
+      <path d="M56 11l7.5 11h-15z"/>
+      <path d="M56 101l-7.5-11h15z"/>
+      <path d="M11 56l11-7.5v15z"/>
+      <path d="M101 56l-11 7.5v-15z"/>
+    </g>
+  </svg>
+  <div class="joy__knob" id="joy-knob"></div>
+  <span class="joy__label">MOVER</span>
+</div>
 <div class="fallback" id="fallback">Tu navegador no pudo iniciar WebGL.<br>Prueba en Chrome o Safari actualizados.</div>
 
 <script src="assets.js"></script>
@@ -1459,9 +1488,12 @@ addEventListener('touchstart', e => {
   for (const t of e.changedTouches){
     if (t.clientX < innerWidth * 0.45 && joy.id === null){
       joy.id = t.identifier; joy.x0 = t.clientX; joy.y0 = t.clientY;
-      joyBase.style.display = 'block';
-      joyBase.style.left = (t.clientX - 55) + 'px';
-      joyBase.style.top  = (t.clientY - 55) + 'px';
+      /* se mide la posicion de reposo y se salta al pulgar, sin transicion */
+      joyBase.classList.add('agarrado');
+      joyBase.style.transform = 'translate(0px, 0px)';
+      const r = joyBase.getBoundingClientRect();
+      joyBase.style.transform =
+        `translate(${t.clientX - (r.left + r.width / 2)}px, ${t.clientY - (r.top + r.height / 2)}px)`;
       joyKnob.style.transform = 'translate(0px, 0px)';
     } else if (lookId === null){
       lookId = t.identifier; px = t.clientX; py = t.clientY;
@@ -1489,13 +1521,17 @@ addEventListener('touchend', e => {
   for (const t of e.changedTouches){
     if (t.identifier === joy.id){
       joy.id = null; joy.vx = joy.vy = 0;
-      joyBase.style.display = 'none';
+      joyKnob.style.transform = 'translate(0px, 0px)';
+      joyBase.classList.remove('agarrado');   /* vuelve planeando a su esquina */
+      joyBase.style.transform = 'translate(0px, 0px)';
     }
     if (t.identifier === lookId) lookId = null;
   }
 });
-if ('ontouchstart' in window)
-  document.querySelector('.hud--hint').textContent = 'pulgar izquierdo: joystick · derecho: mirar';
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0){
+  document.body.classList.add('tactil');
+  document.querySelector('.hud--hint').textContent = 'arrastra a la derecha para mirar';
+}
 
 const keys = {};
 addEventListener('keydown', e => {
