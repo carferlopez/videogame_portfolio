@@ -373,7 +373,8 @@ sol.shadow.camera.near = 5;   sol.shadow.camera.far = 140;
 sol.shadow.bias = -0.0004;
 scene.add(sol);
 sol.target.position.set(0, 0, -22); scene.add(sol.target);
-scene.add(new THREE.HemisphereLight(0xcfeaff, 0xffe9c4, 1.6));
+const ambiente = new THREE.HemisphereLight(0xcfeaff, 0xffe9c4, 1.6);
+scene.add(ambiente);
 
 /* ============ MATERIAL TOON — cel shading en dos bandas ============ */
 const gradient = new THREE.DataTexture(
@@ -494,6 +495,8 @@ const marUniforms = {
   deep:  { value: new THREE.Color(COL.mar_profundo) },
   light: { value: new THREE.Color(COL.mar_claro) },
   foam:  { value: new THREE.Color(0xffffff) },
+  shore: { value: new THREE.Color(0x6bd9d9) },
+  brillo:{ value: 0.35 },
   fogColor: { value: new THREE.Color(COL.niebla) },
 };
 const marMat = new THREE.ShaderMaterial({
@@ -509,11 +512,12 @@ const marMat = new THREE.ShaderMaterial({
   fragmentShader: `
     uniform float time; uniform vec3 deep; uniform vec3 light;
     uniform vec3 foam; uniform vec3 fogColor;
+    uniform vec3 shore; uniform float brillo;
     varying vec2 vUv; varying float vDist;
     void main(){
       /* profundidad: azul hondo lejos -> turquesa junto a la orilla */
       vec3 hondo = mix(deep * 0.72, deep, smoothstep(0.0, 0.45, vUv.x));
-      vec3 turquesa = vec3(0.42, 0.85, 0.85);
+      vec3 turquesa = shore;
       vec3 base = mix(hondo, turquesa, smoothstep(0.86, 0.995, vUv.x));
       /* manchas claras que derivan (lenguaje mar-de-cuento) */
       float n = sin(vUv.x * 60.0 + time * 0.5) * sin(vUv.y * 110.0 - time * 0.35)
@@ -521,7 +525,7 @@ const marMat = new THREE.ShaderMaterial({
       vec3 col = mix(base, light, step(0.75, n) * 0.85);
       /* destellos de sol */
       float sp = sin(vUv.x * 300.0 + time * 1.3) * sin(vUv.y * 500.0 - time * 1.7);
-      col += vec3(1.0) * step(0.985, sp) * 0.35;
+      col += vec3(1.0) * step(0.985, sp) * brillo;
       /* espuma: dos frentes ondulados junto a la orilla (uv.x=1) */
       float ola  = sin(vUv.y * 90.0 + time * 1.1) * 0.006;
       float ola2 = sin(vUv.y * 55.0 - time * 0.8) * 0.008;
@@ -962,6 +966,116 @@ function nube(x, y, z, s){
 }
 nube(-30, 32, -70, 2.4); nube(15, 40, -85, 3.2); nube(-10, 46, -95, 3.8);
 nube(38, 35, -60, 2.0);  nube(-45, 42, -75, 2.8); nube(-60, 30, -30, 2.2);
+
+/* ============ CICLO DIA/NOCHE — la playa se ilumina segun la hora del visitante ============ */
+/* Prueba cualquier hora con ?hora=21 en la URL (acepta decimales: ?hora=6.5) */
+
+const estrellas = (() => {
+  const N = 520, pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++){
+    const u = Math.random() * Math.PI * 2, y = Math.random() * 0.9;
+    const r = 168, s = Math.sqrt(1 - y * y);
+    pos[i*3] = Math.cos(u) * s * r; pos[i*3+1] = y * r + 6; pos[i*3+2] = Math.sin(u) * s * r;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({
+    color: 0xffffff, size: 1.2, sizeAttenuation: true,
+    transparent: true, opacity: 0, depthWrite: false, fog: false }));
+  p.frustumCulled = false; scene.add(p); return p;
+})();
+
+const luna = new THREE.Mesh(new THREE.CircleGeometry(6.2, 28),
+  new THREE.MeshBasicMaterial({ color: 0xfdf6e0, transparent: true,
+    opacity: 0, depthWrite: false, fog: false }));
+luna.visible = false; scene.add(luna);
+
+/* claves horarias: cielo, niebla, sol, rebote, mar, nubes y "cuanta noche" hay */
+const CICLO = [
+  { h: 0,  cTop:0x060c22, cBajo:0x1a2a4a, niebla:0x16223d, sCol:0xaebfe8, sInt:0.55,
+    hCielo:0x2c3d68, hSuelo:0x1c2438, hInt:0.60, mProf:0x0c2340, mClaro:0x21567e,
+    orilla:0x2a5f7a, foam:0xc4d6f0, brillo:0.10, nube:0x5d6d94, sPos:[-24,40,-20], noche:1.00 },
+  { h: 5,  cTop:0x1b3566, cBajo:0x6f6a92, niebla:0x6e6f8e, sCol:0xc59bb0, sInt:0.85,
+    hCielo:0x4a5d8c, hSuelo:0x6b5f6a, hInt:0.80, mProf:0x1a3f68, mClaro:0x3f6f95,
+    orilla:0x5c8ea0, foam:0xdcd4e4, brillo:0.14, nube:0x9a92b4, sPos:[ 46, 4, 32], noche:0.50 },
+  { h: 7,  cTop:0x3f6fae, cBajo:0xffc39a, niebla:0xf1cdb2, sCol:0xffb673, sInt:1.50,
+    hCielo:0x9dc0e8, hSuelo:0xffd0a0, hInt:1.05, mProf:0x2f6d9e, mClaro:0x6fb4c8,
+    orilla:0x9fd0c8, foam:0xffe8d8, brillo:0.26, nube:0xffd9c4, sPos:[ 44,12, 28], noche:0.06 },
+  { h: 10, cTop:0x2f9be8, cBajo:0xeafaf6, niebla:0xe2f2f8, sCol:0xfff4dc, sInt:2.15,
+    hCielo:0xcfeaff, hSuelo:0xffe9c4, hInt:1.50, mProf:0x1f86c9, mClaro:0x45c1e0,
+    orilla:0x6bd9d9, foam:0xffffff, brillo:0.34, nube:0xffffff, sPos:[ 38,32, 24], noche:0.00 },
+  { h: 14, cTop:0x2f9be8, cBajo:0xeafaf6, niebla:0xe2f2f8, sCol:0xfff8e8, sInt:2.30,
+    hCielo:0xcfeaff, hSuelo:0xffe9c4, hInt:1.60, mProf:0x1f86c9, mClaro:0x45c1e0,
+    orilla:0x6bd9d9, foam:0xffffff, brillo:0.35, nube:0xffffff, sPos:[ 30,46, 18], noche:0.00 },
+  { h: 18, cTop:0x3fa4e0, cBajo:0xfdf1d8, niebla:0xeae4d8, sCol:0xffe0ac, sInt:2.05,
+    hCielo:0xd6e9ff, hSuelo:0xffdfae, hInt:1.40, mProf:0x2380c0, mClaro:0x4bbcd8,
+    orilla:0x74d2cf, foam:0xfff6ea, brillo:0.32, nube:0xfff6e8, sPos:[ -8,30, 26], noche:0.00 },
+  { h: 21, cTop:0x1f3f7a, cBajo:0xff9e63, niebla:0xefa87a, sCol:0xff8a3d, sInt:1.55,
+    hCielo:0x6a86c0, hSuelo:0xffa76a, hInt:0.95, mProf:0x1a4b80, mClaro:0x4a86b0,
+    orilla:0x6f9fae, foam:0xffd9bc, brillo:0.30, nube:0xffb283, sPos:[-36, 7, 22], noche:0.12 },
+  { h: 23, cTop:0x0a1330, cBajo:0x24365e, niebla:0x1e2c4c, sCol:0xa8bce8, sInt:0.60,
+    hCielo:0x2e4068, hSuelo:0x1e2740, hInt:0.62, mProf:0x0e2645, mClaro:0x21567e,
+    orilla:0x2f6480, foam:0xcfdcf2, brillo:0.11, nube:0x64749c, sPos:[-30,34,-10], noche:0.90 },
+];
+
+function clavesHora(h){
+  for (let i = 0; i < CICLO.length - 1; i++)
+    if (h >= CICLO[i].h && h < CICLO[i+1].h)
+      return [CICLO[i], CICLO[i+1], (h - CICLO[i].h) / (CICLO[i+1].h - CICLO[i].h)];
+  const a = CICLO[CICLO.length - 1];
+  return [a, CICLO[0], (h - a.h) / (24 - a.h)];   /* 23h -> 0h, cierra el bucle */
+}
+
+const _cA = new THREE.Color(), _cB = new THREE.Color();
+const mezclaCol = (destino, ha, hb, k) => destino.copy(_cA.setHex(ha)).lerp(_cB.setHex(hb), k);
+const L = THREE.MathUtils.lerp;
+
+const HORA_FIJA = (() => {
+  const v = new URLSearchParams(location.search).get('hora');
+  return v === null ? null : ((parseFloat(v) % 24) + 24) % 24;
+})();
+
+function horaDelVisitante(){
+  if (HORA_FIJA !== null) return HORA_FIJA;
+  const d = new Date();
+  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+}
+
+function aplicarHora(){
+  const [a, b, k] = clavesHora(horaDelVisitante());
+  mezclaCol(skyMat.uniforms.top.value, a.cTop,  b.cTop,  k);
+  mezclaCol(skyMat.uniforms.low.value, a.cBajo, b.cBajo, k);
+  mezclaCol(scene.fog.color,            a.niebla, b.niebla, k);
+  mezclaCol(marUniforms.fogColor.value, a.niebla, b.niebla, k);
+
+  mezclaCol(sol.color, a.sCol, b.sCol, k);
+  sol.intensity = L(a.sInt, b.sInt, k);
+  sol.position.set(L(a.sPos[0], b.sPos[0], k), L(a.sPos[1], b.sPos[1], k), L(a.sPos[2], b.sPos[2], k));
+
+  mezclaCol(ambiente.color,       a.hCielo, b.hCielo, k);
+  mezclaCol(ambiente.groundColor, a.hSuelo, b.hSuelo, k);
+  ambiente.intensity = L(a.hInt, b.hInt, k);
+
+  mezclaCol(marUniforms.deep.value,  a.mProf,  b.mProf,  k);
+  mezclaCol(marUniforms.light.value, a.mClaro, b.mClaro, k);
+  mezclaCol(marUniforms.shore.value, a.orilla, b.orilla, k);
+  mezclaCol(marUniforms.foam.value,  a.foam,   b.foam,   k);
+  marUniforms.brillo.value = L(a.brillo, b.brillo, k);
+
+  mezclaCol(nubeMat.color, a.nube, b.nube, k);
+
+  const noche = L(a.noche, b.noche, k);
+  estrellas.material.opacity = noche * 0.95;
+  luna.material.opacity = noche;
+  luna.visible = noche > 0.02;
+  if (luna.visible){
+    luna.position.copy(sol.position).normalize().multiplyScalar(152);
+    luna.lookAt(0, 6, 0);
+  }
+}
+aplicarHora();
+let _relojAcc = 0;   /* refresco perezoso: el sol se mueve muy despacio */
+
 
 /* ============ PERSONAJE (Avatar Captain Barbarossa) ============ */
 const ROPA = { pelo: 0x2a221c, piel: 0xe8b08a, camisa: 0xece5d8,
@@ -1533,6 +1647,9 @@ function animate(now){
     mk.rotation.y = t * 1.6 + i;
     mk.position.y = 5.6 + Math.sin(t * 2 + i * 1.3) * 0.12;
   });
+
+  _relojAcc += dt;
+  if (_relojAcc > 20){ _relojAcc = 0; aplicarHora(); }
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
