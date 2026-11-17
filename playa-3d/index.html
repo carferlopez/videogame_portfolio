@@ -1399,9 +1399,13 @@ function iniciaAudio(){
     lfo.connect(lg); lg.connect(ganaOlas.gain); lfo.start();
   }
   programaGaviota();
+  programaGrillo();
+}
+function esNocheSonora(){
+  return horaVisual >= 20.5 || horaVisual < 6.2;
 }
 function chillido(){
-  if (!audioCtx || silenciado) return;
+  if (!audioCtx || silenciado || esNocheSonora()) return;
   let t0 = audioCtx.currentTime + 0.05;
   const n = 2 + Math.floor(Math.random() * 2);
   for (let i = 0; i < n; i++){
@@ -1424,6 +1428,35 @@ function chillido(){
 }
 function programaGaviota(){
   setTimeout(() => { chillido(); programaGaviota(); }, 5000 + Math.random() * 9000);
+}
+function grillo(){
+  if (!audioCtx || silenciado || !esNocheSonora()) return;
+  let t0 = audioCtx.currentTime + 0.04;
+  const pulsos = 3 + Math.floor(Math.random() * 2);
+  const fBase = 4150 + Math.random() * 420;
+  const panVal = 0.2 + Math.random() * 0.65; /* hacia las dunas y palmeras */
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = fBase; bp.Q.value = 4.5;
+  const pan = audioCtx.createStereoPanner();
+  pan.pan.value = panVal;
+  bp.connect(pan); pan.connect(ganaMaster);
+
+  for (let i = 0; i < pulsos; i++){
+    const o = audioCtx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(fBase, t0);
+    o.frequency.linearRampToValueAtTime(fBase * 1.03, t0 + 0.032);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.022, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.038);
+    o.connect(g); g.connect(bp);
+    o.start(t0); o.stop(t0 + 0.042);
+    t0 += 0.062;
+  }
+}
+function programaGrillo(){
+  setTimeout(() => { grillo(); programaGrillo(); }, 1600 + Math.random() * 2800);
 }
 ['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, iniciaAudio, { once: true }));
 function alternaSonido(){
