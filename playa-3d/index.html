@@ -1300,12 +1300,12 @@ const cargarPersonaje = (ruta) => {
     const model = normaliza(gltf.scene, 1.95);
     heroPH.visible = false;
     hero.add(model);
-    const pieI = model.getObjectByName('LeftToeBase') || model.getObjectByName('LeftFoot');
-    const pieD = model.getObjectByName('RightToeBase') || model.getObjectByName('RightFoot');
+    const pieI = model.getObjectByName('LeftFoot') || model.getObjectByName('LeftToeBase');
+    const pieD = model.getObjectByName('RightFoot') || model.getObjectByName('RightToeBase');
     if (pieI && pieD){
       heroPies = [
-        { hueso: pieI, prevY: null, minY: Infinity, enElAire: false },
-        { hueso: pieD, prevY: null, minY: Infinity, enElAire: false }
+        { hueso: pieI, minY: Infinity, enElAire: false, desdePaso: 1 },
+        { hueso: pieD, minY: Infinity, enElAire: false, desdePaso: 1 }
       ];
     }
     if (gltf.animations && gltf.animations.length){
@@ -1724,23 +1724,21 @@ function animate(now){
     for (const pie of heroPies){
       pie.hueso.getWorldPosition(_piePos);
       const relY = _piePos.y - hero.position.y;
-      pie.minY = Math.min(pie.minY + 0.04 * dt, relY);
+      pie.minY = Math.min(pie.minY + 0.03 * dt, relY);
+      pie.desdePaso += dt;
 
       if (andando){
-        if (relY > pie.minY + 0.055){
+        if (relY > pie.minY + 0.09){
           pie.enElAire = true;
         }
-        const vy = pie.prevY !== null ? (relY - pie.prevY) : 0;
-        if (pie.enElAire && (relY <= pie.minY + 0.018 || (pie.prevVy < 0 && vy >= 0 && relY < pie.minY + 0.045))){
+        if (pie.enElAire && relY <= pie.minY + 0.025 && pie.desdePaso > 0.16){
           pisada(supActual, corriendo);
           pie.enElAire = false;
+          pie.desdePaso = 0;
         }
-        pie.prevVy = vy;
       } else {
         pie.enElAire = false;
-        pie.prevVy = 0;
       }
-      pie.prevY = relY;
     }
   } else {
     const fasePaso = Math.floor(bob * 2 / Math.PI);
