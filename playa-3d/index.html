@@ -1374,13 +1374,19 @@ cargar('assets/vehiculos/van.gltf', gltf => {
 });
 
 /* ============ SONIDO: FX (olas + gaviotas) ============ */
-let audioCtx = null, ganaMaster = null, ganaOlas = null, silenciado = false;
+let audioCtx = null, ganaMaster = null, ganaOlas = null, bufRuidoPaso = null, silenciado = false;
 
 function iniciaAudio(){
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   ganaMaster = audioCtx.createGain(); ganaMaster.gain.value = 0.9;
   ganaMaster.connect(audioCtx.destination);
+
+  /* buffer corto de ruido reutilizable para pisadas */
+  const lenPaso = Math.floor(audioCtx.sampleRate * 0.14);
+  bufRuidoPaso = audioCtx.createBuffer(1, lenPaso, audioCtx.sampleRate);
+  const dPaso = bufRuidoPaso.getChannelData(0);
+  for (let i = 0; i < lenPaso; i++) dPaso[i] = Math.random() * 2 - 1;
 
   /* mar: ruido blanco -> filtro grave -> ganancia con dos oleajes lentos */
   const dur = 4, buf = audioCtx.createBuffer(2, audioCtx.sampleRate * dur, audioCtx.sampleRate);
@@ -1457,6 +1463,59 @@ function grillo(){
 }
 function programaGrillo(){
   setTimeout(() => { grillo(); programaGrillo(); }, 1600 + Math.random() * 2800);
+}
+function pisada(superficie, corriendo){
+  if (!audioCtx || !bufRuidoPaso || silenciado) return;
+  const t0 = audioCtx.currentTime;
+  const vol = corriendo ? 1.25 : 0.9;
+  const rnd = 0.92 + Math.random() * 0.16;
+
+  if (superficie === 'madera'){
+    /* golpe hueco de tabla de madera + toque seco */
+    const o = audioCtx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(175 * rnd, t0);
+    o.frequency.exponentialRampToValueAtTime(88 * rnd, t0 + 0.055);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.075 * vol, t0 + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.065);
+    o.connect(g).connect(ganaMaster);
+    o.start(t0); o.stop(t0 + 0.07);
+
+    const src = audioCtx.createBufferSource(); src.buffer = bufRuidoPaso;
+    const bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 780 * rnd; bp.Q.value = 1.6;
+    const gn = audioCtx.createGain();
+    gn.gain.setValueAtTime(0.032 * vol, t0);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.04);
+    src.connect(bp).connect(gn).connect(ganaMaster);
+    src.start(t0); src.stop(t0 + 0.045);
+  } else {
+    /* arena seca vs arena mojada en la orilla */
+    const mojada = superficie === 'mojada';
+    const dur = mojada ? 0.065 : 0.095;
+    const src = audioCtx.createBufferSource(); src.buffer = bufRuidoPaso;
+    const bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = (mojada ? 1850 : 1120) * rnd;
+    bp.Q.value = mojada ? 1.9 : 1.1;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime((mojada ? 0.048 : 0.058) * vol, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bp).connect(g).connect(ganaMaster);
+    src.start(t0); src.stop(t0 + dur + 0.01);
+
+    /* leve peso grave del paso */
+    const th = audioCtx.createOscillator(); th.type = 'sine';
+    th.frequency.setValueAtTime(105 * rnd, t0);
+    th.frequency.exponentialRampToValueAtTime(52, t0 + 0.045);
+    const gt = audioCtx.createGain();
+    gt.gain.setValueAtTime(0.026 * vol, t0);
+    gt.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
+    th.connect(gt).connect(ganaMaster);
+    th.start(t0); th.stop(t0 + 0.055);
+  }
 }
 ['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, iniciaAudio, { once: true }));
 function alternaSonido(){
@@ -1540,7 +1599,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys[e.code] = false);
 
 const player = { x: PLAZA.x, z: PLAZA.z + 1.5 };
-let yaw = 0, pitch = 0, bob = 0, swing = 0, heading = Math.PI;
+let yaw = 0, pitch = 0, bob = 0, swing = 0, heading = Math.PI, ultimoPaso = -1;
 let pov = 0;   // 0 = tercera persona, 1 = POV dentro del chiringuito
 
 /* POV bajo demanda: se entra CLICANDO el letrero del chiringuito (no por proximidad) */
@@ -1633,6 +1692,18 @@ function animate(now){
   hero.userData.piernaD.rotation.x = -paso;
   hero.userData.brazoI.rotation.x  = -paso * 0.7;
   hero.userData.brazoD.rotation.x  =  paso * 0.7;
+
+  /* pisadas sincronizadas con el paso y el tipo de suelo */
+  const fasePaso = Math.floor(bob * 2 / Math.PI);
+  if (andando){
+    if (fasePaso !== ultimoPaso){
+      ultimoPaso = fasePaso;
+      const sup = suelo > 0.02 ? 'madera' : (player.x < -2.6 ? 'mojada' : 'arena');
+      pisada(sup, keys.Space || joyMag > 0.92);
+    }
+  } else {
+    ultimoPaso = fasePaso;
+  }
 
   /* Animación del modelo GLTF (Captain Barbarossa) */
   if (heroMixer){
