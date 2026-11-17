@@ -1293,11 +1293,21 @@ function normaliza(obj, alturaObjetivo){
 
 /* 1. Carga del Personaje Principal (Captain Barbarossa - assets/personaje.gltf) */
 let heroMixer = null, heroAcciones = null, accionActual = 'idle';
+let heroPies = null;
+const _piePos = new THREE.Vector3();
 const cargarPersonaje = (ruta) => {
   cargar(ruta, gltf => {
     const model = normaliza(gltf.scene, 1.95);
     heroPH.visible = false;
     hero.add(model);
+    const pieI = model.getObjectByName('LeftToeBase') || model.getObjectByName('LeftFoot');
+    const pieD = model.getObjectByName('RightToeBase') || model.getObjectByName('RightFoot');
+    if (pieI && pieD){
+      heroPies = [
+        { hueso: pieI, prevY: null, prevVy: 0, maxY: -Infinity, cooldown: 0 },
+        { hueso: pieD, prevY: null, prevVy: 0, maxY: -Infinity, cooldown: 0 }
+      ];
+    }
     if (gltf.animations && gltf.animations.length){
       heroMixer = new THREE.AnimationMixer(model);
       const busca = rx => gltf.animations.find(a => rx.test(a.name));
@@ -1693,29 +1703,51 @@ function animate(now){
   hero.userData.brazoI.rotation.x  = -paso * 0.7;
   hero.userData.brazoD.rotation.x  =  paso * 0.7;
 
-  /* pisadas sincronizadas con el paso y el tipo de suelo */
-  const fasePaso = Math.floor(bob * 2 / Math.PI);
-  if (andando){
-    if (fasePaso !== ultimoPaso){
-      ultimoPaso = fasePaso;
-      const sup = suelo > 0.02 ? 'madera' : (player.x < -2.6 ? 'mojada' : 'arena');
-      pisada(sup, keys.Space || joyMag > 0.92);
-    }
-  } else {
-    ultimoPaso = fasePaso;
-  }
-
   /* Animación del modelo GLTF (Captain Barbarossa) */
+  const corriendo = keys.Space || joyMag > 0.92;
   if (heroMixer){
     heroMixer.update(dt);
     if (heroAcciones && heroAcciones.idle && heroAcciones.walk){
-      const corriendo = keys.Space || joyMag > 0.92;
       const querida = andando ? (corriendo && heroAcciones.run ? 'run' : 'walk') : 'idle';
       if (querida !== accionActual){
         heroAcciones[accionActual].fadeOut(0.25);
         heroAcciones[querida].reset().fadeIn(0.25).play();
         accionActual = querida;
       }
+    }
+  }
+
+  /* pisadas sincronizadas con el contacto real de cada pie del GLTF */
+  const supActual = suelo > 0.02 ? 'madera' : (player.x < -2.6 ? 'mojada' : 'arena');
+  if (heroPies){
+    hero.updateMatrixWorld(true);
+    for (const pie of heroPies){
+      pie.hueso.getWorldPosition(_piePos);
+      const relY = _piePos.y - hero.position.y;
+      if (pie.cooldown > 0) pie.cooldown -= dt;
+      if (pie.prevY !== null && andando){
+        const vy = relY - pie.prevY;
+        if (relY > pie.maxY) pie.maxY = relY;
+        /* mínimo local al aterrizar tras haberse levantado del suelo */
+        if (pie.prevVy < -0.001 && vy >= -0.0005 && (pie.maxY - relY) > 0.025 && pie.cooldown <= 0){
+          pisada(supActual, corriendo);
+          pie.cooldown = 0.18;
+          pie.maxY = relY;
+        }
+        pie.prevVy = vy;
+      } else {
+        pie.prevVy = 0;
+        pie.maxY = relY;
+      }
+      pie.prevY = relY;
+    }
+  } else {
+    const fasePaso = Math.floor(bob * 2 / Math.PI);
+    if (andando && fasePaso !== ultimoPaso){
+      ultimoPaso = fasePaso;
+      pisada(supActual, corriendo);
+    } else if (!andando){
+      ultimoPaso = fasePaso;
     }
   }
 
