@@ -1304,8 +1304,8 @@ const cargarPersonaje = (ruta) => {
     const pieD = model.getObjectByName('RightToeBase') || model.getObjectByName('RightFoot');
     if (pieI && pieD){
       heroPies = [
-        { hueso: pieI, prevY: null, prevVy: 0, maxY: -Infinity, cooldown: 0 },
-        { hueso: pieD, prevY: null, prevVy: 0, maxY: -Infinity, cooldown: 0 }
+        { hueso: pieI, prevY: null, minY: Infinity, enElAire: false },
+        { hueso: pieD, prevY: null, minY: Infinity, enElAire: false }
       ];
     }
     if (gltf.animations && gltf.animations.length){
@@ -1717,27 +1717,28 @@ function animate(now){
     }
   }
 
-  /* pisadas sincronizadas con el contacto real de cada pie del GLTF */
+  /* pisadas sincronizadas con el contacto exacto de cada pie del GLTF */
   const supActual = suelo > 0.02 ? 'madera' : (player.x < -2.6 ? 'mojada' : 'arena');
   if (heroPies){
     hero.updateMatrixWorld(true);
     for (const pie of heroPies){
       pie.hueso.getWorldPosition(_piePos);
       const relY = _piePos.y - hero.position.y;
-      if (pie.cooldown > 0) pie.cooldown -= dt;
-      if (pie.prevY !== null && andando){
-        const vy = relY - pie.prevY;
-        if (relY > pie.maxY) pie.maxY = relY;
-        /* mínimo local al aterrizar tras haberse levantado del suelo */
-        if (pie.prevVy < -0.001 && vy >= -0.0005 && (pie.maxY - relY) > 0.025 && pie.cooldown <= 0){
+      pie.minY = Math.min(pie.minY + 0.04 * dt, relY);
+
+      if (andando){
+        if (relY > pie.minY + 0.055){
+          pie.enElAire = true;
+        }
+        const vy = pie.prevY !== null ? (relY - pie.prevY) : 0;
+        if (pie.enElAire && (relY <= pie.minY + 0.018 || (pie.prevVy < 0 && vy >= 0 && relY < pie.minY + 0.045))){
           pisada(supActual, corriendo);
-          pie.cooldown = 0.18;
-          pie.maxY = relY;
+          pie.enElAire = false;
         }
         pie.prevVy = vy;
       } else {
+        pie.enElAire = false;
         pie.prevVy = 0;
-        pie.maxY = relY;
       }
       pie.prevY = relY;
     }
