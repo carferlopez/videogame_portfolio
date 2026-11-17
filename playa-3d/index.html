@@ -1373,52 +1373,15 @@ cargar('assets/vehiculos/van.gltf', gltf => {
   scene.add(van);
 });
 
-/* ============ SONIDO: música de fondo + olas + gaviotas ============ */
-let audioCtx = null, ganaMaster = null, ganaOlas = null, ganaMusica = null, bufferMusica = null, silenciado = false;
-let fuenteMusica = null;
-const VOL_MUSICA = 0.22; // Volumen agradable, por debajo de los efectos (olas 0.18+LFO y chillidos)
-const TIEMPO_FADE = 4.0; // 4 segundos de fade in al empezar y fade out al acabar
-
-function reproducirMusicaBucle(){
-  if (!audioCtx || !bufferMusica) return;
-  if (fuenteMusica) {
-    try { fuenteMusica.stop(); } catch(e){}
-    fuenteMusica = null;
-  }
-  const dur = bufferMusica.duration;
-  const fade = Math.min(TIEMPO_FADE, dur * 0.4);
-  
-  fuenteMusica = audioCtx.createBufferSource();
-  fuenteMusica.buffer = bufferMusica;
-  
-  ganaMusica = audioCtx.createGain();
-  ganaMusica.connect(ganaMaster);
-  
-  const t0 = audioCtx.currentTime;
-  // Fade IN: suave desde 0 hasta VOL_MUSICA
-  ganaMusica.gain.setValueAtTime(0, t0);
-  ganaMusica.gain.linearRampToValueAtTime(VOL_MUSICA, t0 + fade);
-  
-  // Fade OUT: suave desde VOL_MUSICA hasta 0 antes del final de la pista
-  if (dur > fade * 2) {
-    ganaMusica.gain.setValueAtTime(VOL_MUSICA, t0 + dur - fade);
-    ganaMusica.gain.linearRampToValueAtTime(0, t0 + dur);
-  }
-  
-  fuenteMusica.connect(ganaMusica);
-  fuenteMusica.start(t0);
-  fuenteMusica.onended = () => {
-    // Al terminar, reiniciar el bucle con un nuevo fade in
-    reproducirMusicaBucle();
-  };
-}
+/* ============ SONIDO: FX (olas + gaviotas) ============ */
+let audioCtx = null, ganaMaster = null, ganaOlas = null, silenciado = false;
 
 function iniciaAudio(){
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   ganaMaster = audioCtx.createGain(); ganaMaster.gain.value = 0.9;
   ganaMaster.connect(audioCtx.destination);
-  
+
   /* mar: ruido blanco -> filtro grave -> ganancia con dos oleajes lentos */
   const dur = 4, buf = audioCtx.createBuffer(2, audioCtx.sampleRate * dur, audioCtx.sampleRate);
   for (let ch = 0; ch < 2; ch++){
@@ -1436,19 +1399,6 @@ function iniciaAudio(){
     lfo.connect(lg); lg.connect(ganaOlas.gain); lfo.start();
   }
   programaGaviota();
-
-  /* Cargar y reproducir música de fondo con fade in/out */
-  fetch('assets/musica_fondo.mp3')
-    .then(res => res.arrayBuffer())
-    .then(data => audioCtx.decodeAudioData(data))
-    .then(buffer => {
-      bufferMusica = buffer;
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      reproducirMusicaBucle();
-    })
-    .catch(err => console.warn('No se pudo cargar la música de fondo:', err));
 }
 function chillido(){
   if (!audioCtx || silenciado) return;
