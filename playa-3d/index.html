@@ -69,10 +69,12 @@
   .hud--hora:active{ transform:translateY(3px); box-shadow:0 1px 0 #17406b; }
   .hud--hora .etiqueta{
     position:absolute; top:53px; left:50%; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:4px;
     font-family:'Press Start 2P', monospace; font-size:7px; letter-spacing:.1em;
     color:#fff; text-shadow:0 2px 0 rgba(18,58,102,.85);
     white-space:nowrap; pointer-events:none;
   }
+  .hud--hora .hora-reloj:empty{ display:none; }
   .hud--hora .g-sol, .hud--hora .g-luna, .hud--hora .g-horizonte{ display:none; }
   .hud--hora[data-icono="sol"]   .g-sol{ display:block; }
   .hud--hora[data-icono="tarde"] .g-sol{ display:block; }
@@ -340,7 +342,7 @@
       <line x1="3.5" y1="24.5" x2="28.5" y2="24.5" stroke="#17406b" stroke-width="2.6" stroke-linecap="round"/>
     </g>
   </svg>
-  <span class="etiqueta" id="hora-etiqueta">AUTO</span>
+  <span class="etiqueta" id="hora-etiqueta"><span id="hora-modo">AUTO</span><span class="hora-reloj" id="hora-reloj"></span></span>
 </button>
 <div class="hud hud--hint">
   <span class="cruceta">
@@ -1104,7 +1106,8 @@ function horaReal(){
 }
 
 const btnHora = document.getElementById('btn-hora');
-const etiquetaHora = document.getElementById('hora-etiqueta');
+const modoHoraEl = document.getElementById('hora-modo');
+const relojHoraEl = document.getElementById('hora-reloj');
 
 function aplicarHora(h){
   const [a, b, k] = clavesHora(h);
@@ -1163,16 +1166,29 @@ let horaDestino = null;      /* !== null mientras corre el time-lapse */
 let velTimelapse = 0;        /* horas por segundo */
 let _relojAcc = 0;           /* refresco perezoso en AUTO: el sol se mueve muy despacio */
 
+function formatoHoraReal(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function actualizaEtiquetaHora(){
+  modoHoraEl.textContent = MODOS[modoHora].etiqueta;
+  relojHoraEl.textContent = MODOS[modoHora].hora === null ? formatoHoraReal() : '';
+}
+
 function cambiaModoHora(i){
   modoHora = ((i % MODOS.length) + MODOS.length) % MODOS.length;
   const destino = MODOS[modoHora].hora === null ? horaReal() : MODOS[modoHora].hora;
   const avance = ((destino - horaVisual) % 24 + 24) % 24;   /* siempre hacia delante */
   horaDestino = destino;
   velTimelapse = Math.max(avance, 0.01) / 1.7;              /* ~1,7 s de time-lapse */
-  etiquetaHora.textContent = MODOS[modoHora].etiqueta;
+  actualizaEtiquetaHora();
   btnHora.blur();                                           /* que ESPACIO siga siendo correr */
 }
-etiquetaHora.textContent = MODOS[0].etiqueta;
+actualizaEtiquetaHora();
+setInterval(() => {
+  if (MODOS[modoHora].hora === null) relojHoraEl.textContent = formatoHoraReal();
+}, 1000);
 btnHora.addEventListener('click', () => cambiaModoHora(modoHora + 1));
 addEventListener('keydown', e => { if (e.code === 'KeyL') cambiaModoHora(modoHora + 1); });
 
